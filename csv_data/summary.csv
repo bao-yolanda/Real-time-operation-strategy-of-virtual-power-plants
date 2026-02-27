@@ -1,0 +1,2 @@
+M,delta_t_req,delta_t,NOFSLOTS,NOFDER,NOFSCEN,NOFEV,s_perf
+1000000.0,0.5,1.0,24,42,24,119,0.984
