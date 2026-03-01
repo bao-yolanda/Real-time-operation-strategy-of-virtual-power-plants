@@ -7,9 +7,9 @@ result = {};
 %% Parameter Reading
 
 % Default data for the 21st day
-day_price = 21;
+day_price = 22;
 % load the parameters for the 21st day (compatible with mac)
-load(fullfile("..", "data_prepare", "param_day_" + day_price + ".mat"));
+%load(fullfile("..", "data_prepare", "param_day_" + day_price + ".mat"));
 
 % Update step size
 NOFTCAP_bid = 900;

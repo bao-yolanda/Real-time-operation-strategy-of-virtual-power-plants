@@ -34,7 +34,7 @@ Profit = Profit * delta_t;
 Constraints = [];
 
 % Initial energy level at the arrival time (fourth column) NOFDER
-Constraints = [Constraints, param_std.energy_init - E(:, 1) == 0];
+Constraints = [Constraints, param_std.energy_init(1:NOFDER,:) - E(:, 1) == 0];
 
 % Power response - balance in each scenario NOFSLOTS * NOFSCEN
 temp = permute(sum(P_dis - P_ch), [2, 3, 1]); % Aggregate DER power

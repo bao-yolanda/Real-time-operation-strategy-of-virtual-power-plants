@@ -2,7 +2,7 @@
 clc;
 clear;
 
-for day_price = [21]
+for day_price = [22]
     param = {};
     M = 1e6; % Large number
     delta_t_req = 0.5; % Maintenance time

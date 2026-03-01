@@ -10,6 +10,13 @@ Signals = xlsread(filename, sheet, xlRange);
 Signals(find(Signals < -1)) = -1;
 Signals(find(Signals > 1)) = 1;
 
+% Define discretization granularity (must match data_prepare_main.m)
+if ~exist('granularity', 'var')
+    diff = 0.1;  % Default granularity
+else
+    diff = granularity;
+end
+
 %% Process the raw signal data
 % Organize by 0.1 resolution: 1) distribution of regd signals this month, 2) distribution of regd signals on July 15th
 

@@ -58,7 +58,7 @@ end
 %% Temperature-Controlled Loads
 load("h_load_temperature.mat"); % Outdoor temperature data
 load("h_load.mat"); % Heat load data
-NOFTCL = 3;
+NOFTCL = 0;
 tcl_c = [80, 80, 40]' * 1e-3; % Equivalent capacitance
 tcl_r = [0.1, 0.1, 0.15]' * 1e3; % Equivalent resistance
 tcl_cop = [3.6, 3.6, 3.3]'; % Cycle efficiency
@@ -92,7 +92,7 @@ load_parameter = xlsread(filename);
 % Parameters related to load, specific meanings on iPad
 
 % Energy-material conversion coefficient (converted to MW)
-NOFIPP = 10;
+NOFIPP = 0;
 production_rate =  1e3 * load_parameter(:, 1);
 % Maximum material storage capacity
 S_max =  load_parameter(:, 4);
