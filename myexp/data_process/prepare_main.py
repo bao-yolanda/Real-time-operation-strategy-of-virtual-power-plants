@@ -119,13 +119,9 @@ def prepare_main_data(
     # PV: [0, NOFPV-1]
     # ES: [NOFPV, NOFPV]
     # EV: [NOFPV+1, NOFPV+NOFEV]
-    # TCL: [NOFPV+1+NOFEV, NOFPV+NOFEV+NOFTCL-1]
-    # IPP: [NOFPV+1+NOFEV+NOFTCL, NOFDER-1]
 
     # 从配置读取PV数量
     NOFPV = config.pv.NOFPV
-    # 不参与调频的资源索引由prepare_std_parameters计算
-    # 这里直接从param_std获取
     index_none_reg = param_std['index_none_reg']
 
     param_market = {
@@ -141,7 +137,7 @@ def prepare_main_data(
         'resource_names': ['pv', 'es', 'ev', 'tcl', 'ipp'],
     }
 
-    NOFDER = NOFPV + 1 + param.NOFEV + param.NOFTCL + param.NOFIPP
+    NOFDER = NOFPV + 1 + param.NOFEV 
 
     # 时间参数
     time_params = {
@@ -162,8 +158,6 @@ def prepare_main_data(
     print(f"  光伏(PV): {config.pv.NOFPV}")
     print(f"  储能(ES): 1")
     print(f"  电动汽车(EV): {config.ev.NOFEV if hasattr(config.ev, 'NOFEV') else param.NOFEV}")
-    print(f"  温控负载(TCL): {config.tcl.NOFTCL}")
-    print(f"  工业生产(IPP): {config.ipp.NOFIPP}")
 
     print(f"\n  场景数(NOFSCEN): {NOFSCEN}")
     print(f"  d_s 范围: [{d_s.min():.4f}, {d_s.max():.4f}]")

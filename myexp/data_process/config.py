@@ -156,17 +156,6 @@ class IPPConfig:
 class SystemConfig:
     """系统配置参数"""
     NOFSLOTS: int = 24  # 时段数量
-    # 不参与调频的资源索引偏移量
-    # Matlab (1-based): temp = 2 + NOFEV + NOFTCL
-    #   这里的"2"是因为: 1(PV) + 1(ES) = 2
-    # Python (0-based): temp = NOFPV + 1 + NOFEV + NOFTCL
-    #   这里: NOFPV(PV的数量) + 1(ES的数量)
-    # 索引偏移: [1, 2, 3, 6, 7]（在两种索引系统中值相同）
-    none_reg_offsets: List[int] = None
-
-    def __post_init__(self):
-        if self.none_reg_offsets is None:
-            self.none_reg_offsets = [1, 2, 3, 6, 7]
 
 
 @dataclass
@@ -175,8 +164,6 @@ class ResourceConfig:
     pv: PVConfig = None
     es: ESConfig = None
     ev: EVConfig = None
-    tcl: TCLConfig = None
-    ipp: IPPConfig = None
     system: SystemConfig = None
 
     def __post_init__(self):
@@ -186,10 +173,6 @@ class ResourceConfig:
             self.es = ESConfig()
         if self.ev is None:
             self.ev = EVConfig()
-        if self.tcl is None:
-            self.tcl = TCLConfig()
-        if self.ipp is None:
-            self.ipp = IPPConfig()
         if self.system is None:
             self.system = SystemConfig()
 
