@@ -49,6 +49,28 @@ class ResourceParameters:
     NOFEV: int
     u: np.ndarray  # 充电状态矩阵 (NOFEV, NOFSLOTS)
 
+    # TCL参数
+    energy_init_tcl: float
+    energy_upper_limit_tcl: float
+    energy_lower_limit_tcl: float
+    power_ch_upper_limit_tcl: np.ndarray
+    power_ch_lower_limit_tcl: np.ndarray
+    theta_tcl: np.ndarray
+    eta_ch_tcl: np.ndarray
+    wOmiga: np.ndarray
+    NOFTCL: int
+
+    # IPP参数
+    energy_init_ipp: np.ndarray
+    energy_end_ipp: np.ndarray
+    energy_upper_limit_ipp: np.ndarray
+    energy_lower_limit_ipp: np.ndarray
+    power_ch_upper_limit_ipp: np.ndarray
+    power_ch_lower_limit_ipp: np.ndarray
+    theta_ipp: float
+    eta_ch_ipp: np.ndarray
+    NOFIPP: int
+
 
 def prepare_parameters(
     NOFSLOTS: int = None,
@@ -157,6 +179,128 @@ def prepare_parameters(
     print(f"  EV数量: {NOFEV}")
     print(f"  在场EV数量范围: [{u.sum(axis=0).min():.0f}, {u.sum(axis=0).max():.0f}]")
 
+    # ========== TCL参数 ==========
+    tcl_cfg = config.tcl
+    NOFTCL = tcl_cfg.NOFTCL  # 从配置读取TCL数量
+
+    if NOFTCL > 0:
+        tcl_c = np.array(tcl_cfg.tcl_c) * 1e-3  # 等效电容 (MWh/K)
+        tcl_r = np.array(tcl_cfg.tcl_r) * 1e3  # 等效电阻 (K/MWh)
+        tcl_cop = np.array(tcl_cfg.tcl_cop)  # 循环效率
+
+        # 加载温度和热负载数据
+        import scipy.io as sio
+        h_load_temperature = sio.loadmat(os.path.join(base_dir, 'data_prepare', 'h_load_temperature.mat'))
+        h_load_data = sio.loadmat(os.path.join(base_dir, 'data_prepare', 'h_load.mat'))
+
+        # MATLAB: h_load = [0.4, 0.4, 0.2]' * h_load(:, 2)';
+        # h_load(:, 2) 是第二列，即索引1（0-based）
+        h_load_val = h_load_data['h_load'][:, 1]  # (24,) - 第二列
+        h_load_temperature_val = h_load_temperature['h_load_temperature'][:, 1]  # (24,) - 第二列
+
+        print(f"  h_load_val shape: {h_load_val.shape}")
+        print(f"  h_load_temperature_val shape: {h_load_temperature_val.shape}")
+
+        # 为每个TCL创建热负载数据
+        # MATLAB: h_load = [0.4, 0.4, 0.2]' * h_load(:, 2)';
+        # 结果是 (3, 24) 矩阵
+        h_load = np.array(tcl_cfg.h_load_ratio).reshape(NOFTCL, 1) * h_load_val.reshape(1, -1)  # (NOFTCL, NOFSLOTS)
+
+        # 温度转换 T' = T_ref - T
+        T_ref = tcl_cfg.T_ref
+        energy_init_tcl = T_ref - tcl_cfg.T_init  # 初始温度对应的能量
+        energy_upper_limit_tcl = tcl_cfg.energy_upper_limit  # MWh
+        energy_lower_limit_tcl = tcl_cfg.energy_lower_limit  # MWh
+        power_ch_upper_limit_tcl = tcl_cfg.power_ch_upper_limit  # MW
+        power_ch_lower_limit_tcl = np.zeros(NOFTCL)
+
+        # 热力学参数
+        gama = 1.0 / (tcl_c * tcl_r)
+        alpha = 1.0 - gama
+        beta = 1.0 / tcl_c
+
+        theta_tcl = tcl_cfg.theta_base * alpha
+        eta_ch_tcl = beta * tcl_cop
+
+        # 热负载/外部温度影响
+        # MATLAB: h_load_temperature = ones(1, NOFSLOTS) * T_ref - h_load_temperature(:, 2)';
+        h_load_temperature_adj = T_ref - h_load_temperature_val  # (24,)
+        # MATLAB: param.wOmiga = - repmat(beta, 1, NOFSLOTS) .* h_load - gama * h_load_temperature;
+        # h_load 是 (3, 24), h_load_temperature_adj 需要广播为 (1, 24)
+        wOmiga = -np.tile(beta.reshape(-1, 1), (1, NOFSLOTS)) * h_load - gama.reshape(-1, 1) * h_load_temperature_adj.reshape(1, -1)  # (NOFTCL, NOFSLOTS)
+
+        print(f"  TCL数量: {NOFTCL}")
+        print(f"  wOmiga shape: {wOmiga.shape}")
+    else:
+        # NOFTCL = 0 时创建默认值
+        energy_init_tcl = 0.0
+        energy_upper_limit_tcl = 0.0
+        energy_lower_limit_tcl = 0.0
+        power_ch_upper_limit_tcl = np.array([])
+        power_ch_lower_limit_tcl = np.array([])
+        theta_tcl = np.array([])
+        eta_ch_tcl = np.array([])
+        wOmiga = np.array([]).reshape(0, NOFSLOTS)
+        print(f"  TCL数量: {NOFTCL}")
+
+    # ========== IPP参数 ==========
+    ipp_cfg = config.ipp
+    NOFIPP = ipp_cfg.NOFIPP  # 从配置读取IPP数量
+
+    if NOFIPP > 0:
+        filename = os.path.join(base_dir, 'data_prepare', 'load_parameters_Lu_milp.xlsx')
+
+        # 使用 pandas 读取 Excel 文件，自动处理公式
+        # MATLAB: xlsread(filename) - 从第二行开始读取（跳过表头），只读取数值列
+        # load_parameter(:, 1) = Excel B列 (0-based索引1) - production rate
+        # load_parameter(:, 3) = Excel D列 (0-based索引3) - Pmax
+        # load_parameter(:, 4) = Excel E列 (0-based索引4) - Smax
+        import pandas as pd
+        # skiprows=1 跳过第一行表头
+        # usecols=[1, 3, 4] 读取B、D、E列
+        df = pd.read_excel(filename, header=None, skiprows=1, nrows=NOFIPP, usecols=[1, 3, 4])
+
+        # 转换为 numpy 数组，确保是浮点类型
+        load_parameter = df.values.astype(float)
+
+        # 处理可能的 NaN 值
+        load_parameter = np.nan_to_num(load_parameter, nan=0.0)
+
+        # 检查 load_parameter 的形状
+        print(f"  load_parameter shape: {load_parameter.shape}")
+
+        # 参数转换
+        production_rate = 1e3 * load_parameter[:, 0]  # MW per unit material (B列, MATLAB第1列)
+        S_max = load_parameter[:, 2]  # 最大材料存储容量 (E列, MATLAB第4列)
+        S_tar = np.zeros(S_max.shape)
+        # 瓶颈过程需要工作的工作时长
+        S_tar[ipp_cfg.bottleneck_process_index] = 200 * ipp_cfg.bottleneck_working_hours
+
+        print(f"  production_rate shape: {production_rate.shape}")
+        print(f"  S_max shape: {S_max.shape}")
+
+        energy_init_ipp = ipp_cfg.energy_init_ratio * S_max
+        energy_end_ipp = energy_init_ipp + S_tar
+        energy_upper_limit_ipp = S_max * ipp_cfg.energy_upper_limit_ratio
+        energy_lower_limit_ipp = S_max * ipp_cfg.energy_lower_limit_ratio
+        power_ch_upper_limit_ipp = 1e-3 * load_parameter[:, 1]  # MW (D列, MATLAB第3列)
+        power_ch_lower_limit_ipp = ipp_cfg.power_ch_lower_limit
+        theta_ipp = ipp_cfg.theta
+        eta_ch_ipp = production_rate
+
+        print(f"  IPP数量: {NOFIPP}")
+    else:
+        # NOFIPP = 0 时创建空数组
+        energy_init_ipp = np.array([])
+        energy_end_ipp = np.array([])
+        energy_upper_limit_ipp = np.array([])
+        energy_lower_limit_ipp = np.array([])
+        power_ch_upper_limit_ipp = np.array([])
+        power_ch_lower_limit_ipp = np.array([])
+        theta_ipp = 1.0
+        eta_ch_ipp = np.array([])
+        print(f"  IPP数量: {NOFIPP}")
+
     # ========== 组装参数对象 ==========
     param = ResourceParameters(
         # 光伏
@@ -193,6 +337,28 @@ def prepare_parameters(
         pr_ch_ev=pr_ch_ev,
         NOFEV=NOFEV,
         u=u,
+
+        # TCL
+        energy_init_tcl=energy_init_tcl,
+        energy_upper_limit_tcl=energy_upper_limit_tcl,
+        energy_lower_limit_tcl=energy_lower_limit_tcl,
+        power_ch_upper_limit_tcl=power_ch_upper_limit_tcl,
+        power_ch_lower_limit_tcl=power_ch_lower_limit_tcl,
+        theta_tcl=theta_tcl,
+        eta_ch_tcl=eta_ch_tcl,
+        wOmiga=wOmiga,
+        NOFTCL=NOFTCL,
+
+        # IPP
+        energy_init_ipp=energy_init_ipp,
+        energy_end_ipp=energy_end_ipp,
+        energy_upper_limit_ipp=energy_upper_limit_ipp,
+        energy_lower_limit_ipp=energy_lower_limit_ipp,
+        power_ch_upper_limit_ipp=power_ch_upper_limit_ipp,
+        power_ch_lower_limit_ipp=power_ch_lower_limit_ipp,
+        theta_ipp=theta_ipp,
+        eta_ch_ipp=eta_ch_ipp,
+        NOFIPP=NOFIPP,
     )
 
     # ========== 转换为字典 (兼容旧代码) ==========
@@ -226,6 +392,24 @@ def prepare_parameters(
         'pr_ch_ev': pr_ch_ev,
         'NOFEV': NOFEV,
         'u': u,
+        'energy_init_tcl': energy_init_tcl,
+        'energy_upper_limit_tcl': energy_upper_limit_tcl,
+        'energy_lower_limit_tcl': energy_lower_limit_tcl,
+        'power_ch_upper_limit_tcl': power_ch_upper_limit_tcl,
+        'power_ch_lower_limit_tcl': power_ch_lower_limit_tcl,
+        'theta_tcl': theta_tcl,
+        'eta_ch_tcl': eta_ch_tcl,
+        'wOmiga': wOmiga,
+        'NOFTCL': NOFTCL,
+        'energy_init_ipp': energy_init_ipp,
+        'energy_end_ipp': energy_end_ipp,
+        'energy_upper_limit_ipp': energy_upper_limit_ipp,
+        'energy_lower_limit_ipp': energy_lower_limit_ipp,
+        'power_ch_upper_limit_ipp': power_ch_upper_limit_ipp,
+        'power_ch_lower_limit_ipp': power_ch_lower_limit_ipp,
+        'theta_ipp': theta_ipp,
+        'eta_ch_ipp': eta_ch_ipp,
+        'NOFIPP': NOFIPP,
     }
 
     return param, param_dict

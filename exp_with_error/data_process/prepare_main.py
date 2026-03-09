@@ -8,9 +8,8 @@ import os
 from typing import Dict, Tuple, Any
 from types import SimpleNamespace
 
-from .prepare_regd import prepare_regd_distribution
+from .prepare_wt import prepare_wind_as_regulation
 from .prepare_price import prepare_price_data
-from .prepare_pv import prepare_pv_output
 from .prepare_parameters import prepare_parameters, ResourceParameters
 from .prepare_std import prepare_std_parameters
 from .config import ResourceConfig, default_config
@@ -27,6 +26,8 @@ def prepare_main_data(
     NOFSLOTS: int = None,
     granularity: float = 0.1,
     nofHisDays: int = 14,
+    N_wind: int = 2,
+    N_samples: int = 2000,
     M: float = 1e6,
     delta_t_req: float = 0.5,
     s_perf: float = 0.984,
@@ -42,6 +43,8 @@ def prepare_main_data(
         NOFSLOTS: 时段数量,如果为None则使用配置文件中的默认值
         granularity: 调频信号离散粒度
         nofHisDays: 历史天数
+        N_wind: 风电场数量
+        N_samples: 风电场景数量
         M: 大M常数（软约束惩罚）
         delta_t_req: 维护时间
         s_perf: 调频性能系数
@@ -63,29 +66,33 @@ def prepare_main_data(
         base_dir = os.path.dirname(os.path.dirname(script_dir))
 
     print("="*70)
-    print("VPP能量管理 - 数据准备")
+    print("VPP能量管理 - 数据准备（风电版本）")
     print("="*70)
     print(f"\n配置:")
     print(f"  价格日期: day {day_price}")
-    print(f"  调频信号日期: day {day_price + 1}")
+    print(f"  风电数据日期: day {day_price + 1}")
     print(f"  时段数(NOFSLOTS): {NOFSLOTS}")
     print(f"  时段长度(delta_t): 1 小时")
+    print(f"  风电场数量(N_wind): {N_wind}")
+    print(f"  场景数(N_samples): {N_samples}")
 
-    # ========== 步骤1: 读取调频信号 ==========
+    # ========== 步骤1: 读取风电数据并作为调频信号 ==========
     print("\n" + "-"*70)
-    print("步骤1: 处理调频信号数据...")
+    print("步骤1: 处理风电数据（风电误差作为调频信号）...")
     print("-"*70)
 
-    day_reg = day_price + 1
-    hourly_Distribution, hourly_Mileage, d_s, Signal_day = prepare_regd_distribution(
-        day_reg=day_reg,
+    day_wind = day_price + 1
+    (WT_pred, WT_error_scenarios, WT_full_scenarios,
+     hourly_Distribution, hourly_Mileage, d_s, Signal_day) = prepare_wind_as_regulation(
+        day_wind=day_wind,
         NOFSLOTS=NOFSLOTS,
-        granularity=granularity,
-        nofHisDays=nofHisDays,
+        N_wind=N_wind,
+        N_samples=N_samples,
         base_dir=base_dir
     )
 
     NOFSCEN = len(d_s)  # 场景数
+    NOFWT = N_wind  # 风电场数量
 
     # ========== 步骤2: 读取市场价格 ==========
     print("\n" + "-"*70)
@@ -122,12 +129,15 @@ def prepare_main_data(
 
     # 从配置读取PV数量
     NOFPV = config.pv.NOFPV
+    index_none_reg = param_std['index_none_reg']
+
     param_market = {
         'price_e': price_e,
         'price_reg': price_reg,
         'hourly_Mileage': hourly_Mileage,
         'hourly_Distribution': hourly_Distribution,
         'd_s': d_s,
+        'index_none_reg': index_none_reg,
         's_perf': s_perf,
 
         # 资源信息

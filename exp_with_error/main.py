@@ -25,7 +25,6 @@ def _normalize_param(param: Any) -> Any:
     param.hourly_Mileage = as_1d(param.hourly_Mileage)
     param.hourly_Distribution = as_2d(param.hourly_Distribution)
     param.d_s = as_1d(param.d_s)
-    param.index_none_reg = as_1d(param.index_none_reg).astype(int)
     param.s_perf = float(param.s_perf)
     return param
 
@@ -86,7 +85,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         config = ResourceConfig()
 
         param, param_std, time_params, Signal_day = prepare_main_data(
-            day_price=21,
+            day_price=23,
             hour_init=0,
             NOFSLOTS=24,
             granularity=0.1,

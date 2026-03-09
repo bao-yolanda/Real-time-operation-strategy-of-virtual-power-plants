@@ -102,8 +102,6 @@ def main() -> None:
     result["actualProfit"] = result["actualProfit"] * delta_t
 
     print("done")
-    print(f"profit: {result['actualProfit'].sum():.4f}")
-
-
+    print(f"调频收益: {result['actualProfit'].sum():.4f}")
 if __name__ == "__main__":
     main()

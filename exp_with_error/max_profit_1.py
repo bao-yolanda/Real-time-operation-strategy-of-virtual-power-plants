@@ -32,14 +32,11 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
     NOFSCEN = ctx["NOFSCEN"]             # 场景数 (调频信号离散化后的场景数量)
     delta_t = ctx["delta_t"]             # 时间步长 (0.25小时 = 15分钟)
     delta_t_req = ctx["delta_t_req"]     # 响应时间间隔 (0.5小时)
-    r_bid_flag = 1
-    # ========== 决策变量 ==========  
+
+    # ========== 决策变量 ==========
     Bid_P = cp.Variable(NOFSLOTS)         # VPP基础功率投标 (96×1, MW)
-    if r_bid_flag:
-        Bid_R = cp.Variable(NOFSLOTS)
-    else:
-        Bid_R = np.zeros(NOFSLOTS)        # VPP调频功率投标 (96×1, MW)
-    R_DER = cp.Variable((NOFDER, NOFSLOTS))  # 每个资源的调频功率分配 (55×96, MW)   
+    Bid_R = cp.Variable(NOFSLOTS)         # VPP调频功率投标 (96×1, MW)
+    R_DER = cp.Variable((NOFDER, NOFSLOTS))  # 每个资源的调频功率分配 (55×96, MW)
     P_DER = cp.Variable((NOFDER, NOFSLOTS))  # 每个资源的基础功率分配 (55×96, MW)
 
     # 场景相关变量 (考虑调频信号的不确定性)
@@ -114,69 +111,79 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
         [param_std.energy_lower_limit[:, :1], param_std.energy_lower_limit[:, :-1]],
         axis=1,
     )
-    # theta = 1 (PV, ES, EV 都没有衰减)
-    theta_factor = 1.0 - delta_t_req * (1.0 - 1.0)  # = 1.0
+    theta_factor = 1.0 - delta_t_req * (1.0 - param_std.theta)  # 衰减因子
 
     # 7a. 向下调频约束: 能量不能低于下限
     constraints += [
-        E[:, :-1]                                              # theta=1，能量不变
+        cp.multiply(theta_factor[:, None], E[:, :-1])           # 衰减后的能量
         - delta_t_req * (param_std.eta_dis @ P_dis[:, :, -1])  # 最大放电消耗
+        + delta_t_req * param_std.wOmiga                       # 外部影响
         >= lower_shift                                          # 能量下限
     ]
 
     # 7b. 向上调频约束: 能量不能超过上限
     constraints += [
-        E[:, :-1]                                              # theta=1，能量不变
+        cp.multiply(theta_factor[:, None], E[:, :-1])           # 衰减后的能量
         - delta_t_req * (param_std.eta_ch @ P_ch[:, :, 0])    # 最大充电输入
+        + delta_t_req * param_std.wOmiga                       # 外部影响
         <= param_std.energy_upper_limit                        # 能量上限
     ]
 
     # 8. 能量动态方程 (期望值)
     dist = hourly_distribution
-    temp_ch = cp.sum(cp.multiply(P_ch, dist[None, :, :]), axis=2)  # 加权充电功率 (42×96)
-    temp_dis = cp.sum(cp.multiply(P_dis, dist[None, :, :]), axis=2) # 加权放电功率 (42×96)
+    temp_ch = cp.sum(cp.multiply(P_ch, dist[None, :, :]), axis=2)  # 加权充电功率 (55×96)
+    temp_dis = cp.sum(cp.multiply(P_dis, dist[None, :, :]), axis=2) # 加权放电功率 (55×96)
 
-    # theta = 1 (PV, ES, EV 都没有衰减)
     constraints += [
-        E[:, 1:] == E[:, :-1]                                           # theta=1，无衰减
+        E[:, 1:]                                               # 下一时刻能量
+        == cp.multiply(param_std.theta[:, None], E[:, :-1])  # 衰减项
         + (param_std.eta_ch @ temp_ch) * delta_t              # 充电输入项
         - (param_std.eta_dis @ temp_dis) * delta_t             # 放电输出项
-    ]  
+        + param_std.wOmiga * delta_t                           # 外部影响
+    ]
+
+    # 9. 非调频资源约束: 某些资源(如IPP的某些环节)不参与调频
+    # param.index_none_reg 已经是0-based索引（在prepare_std.py中计算）
+    # none_reg = param.index_none_reg.tolist()  # 不参与调频的资源索引
+    # 如果有不参与调频的资源，则添加约束（空数组时跳过）
+    # if len(none_reg) > 0:
+    #     constraints += [R_DER[none_reg, :] == 0]  # 这些资源的调频功率必须为0
 
     # ========== 求解优化问题 ==========
     objective = cp.Maximize(Profit)
     problem = cp.Problem(objective, constraints)
     solver_name = _choose_solver("GUROBI")  # 优先使用Gurobi求解器
-    problem.solve(solver=solver_name, verbose=False)
+
+    try:
+        problem.solve(solver=solver_name, verbose=False)
+    except Exception as e:
+        print(f"求解器错误: {e}")
+        print(f"尝试使用备选求解器...")
+        solver_name = _choose_solver("ECOS")
+        problem.solve(solver=solver_name, verbose=False)
 
     # ========== 检查求解状态 ==========
     ok = problem.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
     if ok:
         print("slot 1: bidding ok")
     else:
-        print("slot 1: bidding failed")
+        print(f"slot 1: bidding failed (status: {problem.status})")
 
     # ========== 存储初始投标结果 (全天最优解) ==========
-    result["E_init"] = E.value              # 初始能量状态 (55×97)
+    result["Bid_R_init"] = Bid_R.value if Bid_R.value is not None else np.zeros(NOFSLOTS)
+    result["Bid_P_init"] = Bid_P.value if Bid_P.value is not None else np.zeros(NOFSLOTS)
+    result["E_init"] = E.value if E.value is not None else np.zeros((NOFDER, NOFSLOTS + 1))
 
     # ========== 存储当前时段状态 (用于实时控制) ==========
-    result["Bid_R_cur"] = 0.0   # 当前时段调频投标 (标量, MW)
-
-    result["Bid_P_cur"] = Bid_P.value[0]   # 当前时段基础功率投标 (标量, MW)
-    result["E_cur"] = E.value[:, 0]        # 当前能量状态 (55×1)
-    result["P_DER_cur"] = P_DER.value[:, 0]  # 当前各资源基础功率 (55×1, MW)
-    result["R_DER_cur"] = R_DER.value[:, 0]  # 当前各资源调频功率 (55×1, MW)
+    result["Bid_R_cur"] = Bid_R.value[0] if Bid_R.value is not None else 0.0   # 当前时段调频投标 (标量, MW)
+    result["Bid_P_cur"] = Bid_P.value[0] if Bid_P.value is not None else 0.0   # 当前时段基础功率投标 (标量, MW)
+    result["E_cur"] = E.value[:, 0] if E.value is not None else np.zeros(NOFDER)        # 当前能量状态 (55×1)
+    result["P_DER_cur"] = P_DER.value[:, 0] if P_DER.value is not None else np.zeros(NOFDER)  # 当前各资源基础功率 (55×1, MW)
+    result["R_DER_cur"] = R_DER.value[:, 0] if R_DER.value is not None else np.zeros(NOFDER)  # 当前各资源调频功率 (55×1, MW)
 
     # ========== 存储投标历史记录 ==========
-    result["Bid_P_rev"] = Bid_P.value.copy()  # 基础功率投标历史 (96×1)
-    result["P_DER_rev"] = P_DER.value.copy()  # 各资源基础功率历史 (55×96)
-    result["R_DER_rev"] = R_DER.value.copy()  # 各资源调频功率历史 (55×96)
+    result["Bid_R_rev"] = Bid_R.value.copy() if Bid_R.value is not None else np.zeros(NOFSLOTS)  # 调频投标历史 (96×1)
+    result["Bid_P_rev"] = Bid_P.value.copy() if Bid_P.value is not None else np.zeros(NOFSLOTS)  # 基础功率投标历史 (96×1)
+    result["P_DER_rev"] = P_DER.value.copy() if P_DER.value is not None else np.zeros((NOFDER, NOFSLOTS))  # 各资源基础功率历史 (55×96)
+    result["R_DER_rev"] = R_DER.value.copy() if R_DER.value is not None else np.zeros((NOFDER, NOFSLOTS))  # 各资源调频功率历史 (55×96)
     result["E_rev"] = result["E_cur"].reshape(-1, 1)  # 能量历史 (55×1, 初始状态)
-    if r_bid_flag:
-        result["Bid_R_rev"] = Bid_R.value.copy()  # 调频投标历史 (96×1)
-        result["Bid_R_init"] = Bid_R.value    # 初始调频投标 (96×1, MW)
-        result["Bid_R_cur"] = Bid_R.value[0]   # 当前时段调频投标 (标量, MW)
-    else:
-        result["Bid_R_init"] = np.zeros(NOFSLOTS)  # 初始调频投标 (96×1, MW)
-        result["Bid_R_cur"] = 0.0   # 当前时段调频投标 (标量, MW)
-        result["Bid_R_rev"] = np.zeros((NOFSLOTS, NOFSCEN))

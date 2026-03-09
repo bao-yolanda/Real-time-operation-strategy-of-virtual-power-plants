@@ -69,17 +69,18 @@ def fast_control_implement(ctx: Dict[str, Any]) -> None:
     p_ch_sum = p_ch.sum(axis=1)    # 每个资源1分钟的总充电功率 (55×1, MW)
 
     # ========== 资源参数 ==========
-    # theta = 1 (PV, ES, EV 都没有衰减)
-    eta_ch = param_std.eta_ch      # 充电效率矩阵 (42×42, 对角矩阵)
-    eta_dis = param_std.eta_dis    # 放电效率矩阵 (42×42, 对角矩阵)
+    theta = param_std.theta        # 能量保持率 (55×1, 通常为1, 表示无自然衰减)
+    eta_ch = param_std.eta_ch      # 充电效率矩阵 (55×55, 对角矩阵)
+    eta_dis = param_std.eta_dis    # 放电效率矩阵 (55×55, 对角矩阵)
 
     # ========== 更新能量状态 ==========
-    # E_new = E_old + 充电输入 × 效率 - 放电输出 / 效率 (theta=1，无衰减)
+    # E_new = E_old × (1 - 自然衰减) + 充电输入 × 效率 - 放电输出 / 效率 + 外部影响
     result["E_cur"] = (
-        result["E_cur"]                                           # theta=1，能量保持不变
+        (1.0 - delta_t_cap * (1.0 - theta)) * result["E_cur"]           # 自然衰减项
         + (eta_ch @ p_ch_sum) / 1800.0                                # 充电输入项 (转换为小时)
         - (eta_dis @ p_dis_sum) / 1800.0                               # 放电输出项 (转换为小时)
-    )  
+        + param_std.wOmiga[:, cur_slot_idx] * delta_t_cap              # 外部影响 (TCL的热负荷)
+    )
 
     # ========== 记录历史数据 ==========
     result["E_rev"] = np.column_stack([result["E_rev"], result["E_cur"]])      # 能量历史 (55×t)

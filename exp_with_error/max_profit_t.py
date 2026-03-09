@@ -16,20 +16,10 @@ def _choose_solver(preferred: str) -> str:
     return "SCS"
 
 
-def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> None:
+def max_profit_t(ctx: Dict[str, Any]) -> None:
     """实时滚动投标优化：每15分钟执行一次，重新优化剩余时段的投标策略
 
     考虑当前实际状态，滚动优化剩余时段的投标
-
-    Args:
-        ctx: 上下文字典，包含参数和结果
-        uncertainty_method: 不确定性处理方法
-            - "scenario": 场景优化（使用所有场景）
-            - "CVaR": 条件风险价值优化（控制尾部风险）
-            - "FICA": 前向-反向约束近似（只使用极端场景）
-    
-    Returns:
-        solve_time: 求解时间（秒）
     """
     # ========== 输入参数 ==========
     param = ctx["param"]         # 市场参数 (价格、里程、分布等)
@@ -65,30 +55,9 @@ def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> N
     R_DER = cp.Variable((NOFDER, rest_slots))  # 剩余时段各资源调频功率 (55×rest_slots)
     P_DER = cp.Variable((NOFDER, rest_slots))  # 剩余时段各资源基础功率 (55×rest_slots)
 
-    # 根据不确定性方法确定使用的场景
-    if uncertainty_method == "CVaR":
-        # CVaR: 使用所有场景，但控制尾部风险
-        NOFSCEN_used = NOFSCEN
-        scenario_indices = np.arange(NOFSCEN)
-    elif uncertainty_method == "FICA":
-        # FICA: 只使用极端场景（分位点）
-        k = max(5, int(NOFSCEN * 0.10))  # 选取10%的极端场景，至少2个
-        # 找出d_s中最小和最大的k个场景索引
-        d_s_sorted_idx = np.argsort(param.d_s)
-        extreme_indices = np.concatenate([
-            d_s_sorted_idx[:k],      # 最小的k个场景
-            d_s_sorted_idx[-k:]      # 最大的k个场景
-        ])
-        NOFSCEN_used = len(extreme_indices)
-        scenario_indices = extreme_indices
-    else:  # "scenario"
-        # 场景优化: 使用所有场景
-        NOFSCEN_used = NOFSCEN
-        scenario_indices = np.arange(NOFSCEN)
-
     # 场景相关变量 (考虑当前时段和剩余时段)
-    P_dis = cp.Variable((NOFDER, rest_slots + 1, NOFSCEN_used))  # 放电功率 (55×(rest+1)×场景数)
-    P_ch = cp.Variable((NOFDER, rest_slots + 1, NOFSCEN_used))  # 充电功率 (55×(rest+1)×场景数)
+    P_dis = cp.Variable((NOFDER, rest_slots + 1, NOFSCEN))  # 放电功率 (55×(rest+1)×场景数)
+    P_ch = cp.Variable((NOFDER, rest_slots + 1, NOFSCEN))    # 充电功率 (55×(rest+1)×场景数)
     E = cp.Variable((NOFDER, rest_slots + 2))            # 能量状态 (55×(rest+2))
 
     # 软约束变量 (允许能量约束松弛，以获得可行解)
@@ -96,31 +65,19 @@ def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> N
     delta_E2 = cp.Variable((NOFDER, rest_slots + 2))  # 能量上限松弛变量
     delta_E3 = cp.Variable((NOFDER, rest_slots))      # 向下调频约束松弛
     delta_E4 = cp.Variable((NOFDER, rest_slots))      # 向上调频约束松弛
-    Cost_perf = cp.Variable((rest_slots + 1, NOFSCEN_used))  # 老化成本
+    Cost_perf = cp.Variable((rest_slots + 1, NOFSCEN))  # 老化成本
 
     # ========== 获取剩余时段的市场参数 ==========
     price_e = param.price_e[cur_slot_idx + 1 :]                      # 剩余时段能量价格
     price_reg = param.price_reg[cur_slot_idx + 1 :]                  # 剩余时段调频价格
     hourly_mileage = param.hourly_Mileage[cur_slot_idx + 1 :]       # 剩余时段里程
-    hourly_distribution = param.hourly_Distribution[cur_slot_idx + 1 :, scenario_indices]  # 剩余时段信号分布（根据方法选择场景）
-
-    # CVaR参数
-    if uncertainty_method == "CVaR":
-        alpha = 0.90  # 置信水平（降低到90%以放宽约束）
-        VaR = cp.Variable(rest_slots)  # 风险价值
-        # CVaR辅助变量（每个时段每个场景）
-        Z = cp.Variable((rest_slots, NOFSCEN_used))
-    else:  # "scenario" 或 "FICA" 不使用CVaR
-        VaR = None
-        Z = None
+    hourly_distribution = param.hourly_Distribution[cur_slot_idx + 1 :, :]  # 剩余时段信号分布
 
     # ========== 收益计算 (仅剩余时段) ==========
     # 1. 里程收益
     reg_mileage = price_reg[:, 1] * hourly_mileage
     # 2. 调频能量收益
-    d_s_used = param.d_s[scenario_indices]  # 根据方法选择的场景信号
-    reg_energy = cp.multiply(hourly_distribution @ d_s_used, price_e)
-
+    reg_energy = cp.multiply(hourly_distribution @ param.d_s, price_e)
     # 3. 总利润 (剩余时段)
     Profit = (
         price_e @ Bid_P                                  # 能量收益
@@ -132,9 +89,9 @@ def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> N
     Profit = Profit * delta_t
 
     # ========== 减去当前时段的收益 (因为已经执行) ==========
-    cur_dist = param.hourly_Distribution[cur_slot_idx, scenario_indices]  # 当前时段信号分布
+    cur_dist = param.hourly_Distribution[cur_slot_idx, :]  # 当前时段信号分布
     # 1. 当前时段的调频能量收益
-    Profit = Profit - (cur_dist @ d_s_used * param.price_e[cur_slot_idx]) * Bid_R_cur * delta_t_rest
+    Profit = Profit - (cur_dist @ param.d_s * param.price_e[cur_slot_idx]) * Bid_R_cur * delta_t_rest
     # 2. 当前时段的老化成本
     Profit = Profit - cp.sum(cp.multiply(cur_dist, Cost_perf[0, :])) * delta_t_rest
 
@@ -147,55 +104,22 @@ def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> N
     # ========== 约束条件 ==========
     constraints = []
 
-    # ========== CVaR风险约束 ==========
-    if uncertainty_method == "CVaR":
-        # CVaR: 控制尾部风险，保证至少(1-alpha)比例的场景收益不低于VaR
-        for t in range(rest_slots):
-            # 每个时段的收益（考虑所有场景）
-            # 调频能量收益需要逐场景计算
-            reg_energy_per_scenario = cp.multiply(hourly_distribution[t, :] * d_s_used,
-                                                  price_e[t]) * Bid_R[t]
-
-            profit_scenarios = (
-                price_e[t] * Bid_P[t]
-                + price_reg[t, 0] * Bid_R[t] * param.s_perf
-                + reg_mileage[t] * Bid_R[t] * param.s_perf
-                + reg_energy_per_scenario
-                - cp.multiply(hourly_distribution[t, :], Cost_perf[1 + t, :])
-            ) * delta_t
-
-            # CVaR辅助约束
-            constraints += [Z[t, :] >= VaR[t] - profit_scenarios]
-            constraints += [Z[t, :] >= 0]
-
-        # 给VaR添加边界约束（避免无界问题）
-        # VaR应该在合理的收益范围内，假设每个时段最大收益为10000元
-        max_profit_per_slot = 10000.0
-        constraints += [VaR >= -max_profit_per_slot]
-        constraints += [VaR <= max_profit_per_slot]
-
-        # CVaR约束: CVaR >= (1-alpha)*VaR
-        cvar_constraints = VaR + (1 / ((1 - alpha) * NOFSCEN_used)) * cp.sum(Z, axis=1)
-        # 将CVaR加入目标函数，平衡收益和风险
-        lambda_cvar = 0.001  # 风险权重（进一步降低到0.001）
-        Profit = Profit - lambda_cvar * cp.sum(cvar_constraints)
-
     # 1. 初始能量约束 (等于当前实际状态)
     constraints += [E[:, 0] == E_cur]
 
     # 2. 功量平衡约束
-    d_s_used = d_s_used.reshape((1, 1, NOFSCEN_used))
+    d_s = param.d_s.reshape((1, 1, NOFSCEN))
     # 剩余时段: P_dis - P_ch = P_DER + R_DER × 信号值
     constraints += [
         P_dis[:, 1:, :] - P_ch[:, 1:, :]
         == cp.reshape(P_DER, (NOFDER, rest_slots, 1))
-        + cp.multiply(cp.reshape(R_DER, (NOFDER, rest_slots, 1)), d_s_used)
+        + cp.multiply(cp.reshape(R_DER, (NOFDER, rest_slots, 1)), d_s)
     ]
     # 当前时段剩余时间: P_dis - P_ch = P_DER_cur + R_DER_cur × 信号值
     constraints += [
         P_dis[:, 0:1, :] - P_ch[:, 0:1, :]
         == cp.reshape(P_DER_cur, (NOFDER, 1, 1))
-        + cp.multiply(cp.reshape(R_DER_cur, (NOFDER, 1, 1)), d_s_used)
+        + cp.multiply(cp.reshape(R_DER_cur, (NOFDER, 1, 1)), d_s)
     ]
 
     # 3. VPP投标约束
@@ -227,79 +151,69 @@ def max_profit_t(ctx: Dict[str, Any], uncertainty_method: str = "scenario") -> N
     ]
 
     # 7. 响应能力约束 (软约束)
-    # theta = 1 (PV, ES, EV 都没有衰减)
-    theta_factor = 1.0 - delta_t_req * (1.0 - 1.0)  # = 1.0
+    theta_factor = 1.0 - delta_t_req * (1.0 - param_std.theta)
     # 向下调频约束: 能量不能低于下限 (允许松弛delta_E3)
     constraints += [
-        E[:, 1:-1]                                             # theta=1，能量不变
+        cp.multiply(theta_factor[:, None], E[:, 1:-1])
         - delta_t_req * (param_std.eta_dis @ P_dis[:, 1:, -1])
+        + delta_t_req * param_std.wOmiga[:, cur_slot_idx + 1 :]
         >= param_std.energy_lower_limit[:, cur_slot_idx:-1] - delta_E3
     ]
     # 向上调频约束: 能量不能超过上限 (允许松弛delta_E4)
     constraints += [
-        E[:, 1:-1]                                             # theta=1，能量不变
+        cp.multiply(theta_factor[:, None], E[:, 1:-1])
         - delta_t_req * (param_std.eta_ch @ P_ch[:, 1:, 0])
+        + delta_t_req * param_std.wOmiga[:, cur_slot_idx + 1 :]
         <= param_std.energy_upper_limit[:, cur_slot_idx:-1] + delta_E4
     ]
     constraints += [0 <= delta_E3, 0 <= delta_E4]  # 松弛变量非负
 
     # 8. 能量动态方程 (期望值)
-    dist_all = param.hourly_Distribution[cur_slot_idx:, scenario_indices]  # 当前时段+剩余时段的信号分布
+    dist_all = param.hourly_Distribution[cur_slot_idx:, :]  # 当前时段+剩余时段的信号分布
     temp_ch = cp.sum(cp.multiply(P_ch, dist_all[None, :, :]), axis=2)  # 加权充电功率
     temp_dis = cp.sum(cp.multiply(P_dis, dist_all[None, :, :]), axis=2)  # 加权放电功率
 
-    # theta = 1 (PV, ES, EV 都没有衰减)
     # 剩余时段能量更新
     constraints += [
         E[:, 2:]
-        == E[:, 1:-1]                                           # theta=1，无衰减
+        == cp.multiply(param_std.theta[:, None], E[:, 1:-1])
         + (param_std.eta_ch @ temp_ch[:, 1:]) * delta_t
         - (param_std.eta_dis @ temp_dis[:, 1:]) * delta_t
-    ]  # PV+ES+EV 没有 wOmiga 外部影响
+        + param_std.wOmiga[:, cur_slot_idx + 1 :] * delta_t
+    ]
 
     # 当前时段剩余时间的能量更新
-    theta_rest = 1.0 - delta_t_rest * (1.0 - 1.0)  # = 1.0
+    theta_rest = 1.0 - delta_t_rest * (1.0 - param_std.theta)
     constraints += [
         E[:, 1]
-        == E[:, 0]                                               # theta=1，无衰减
+        == cp.multiply(theta_rest, E[:, 0])
         + (param_std.eta_ch @ temp_ch[:, 0]) * delta_t_rest
         - (param_std.eta_dis @ temp_dis[:, 0]) * delta_t_rest
-    ]  # PV+ES+EV 没有 wOmiga 外部影响
+        + param_std.wOmiga[:, cur_slot_idx] * delta_t_rest
+    ]
+
+    # 9. 非调频资源约束
+    # param.index_none_reg 已经是0-based索引（在prepare_std.py中计算）
+    # none_reg = param.index_none_reg.tolist()
+    # 如果有不参与调频的资源，则添加约束（空数组时跳过）
+    # if len(none_reg) > 0:
+    #     constraints += [R_DER[none_reg, :] == 0]
 
     # ========== 求解优化问题 ==========
-    import time
-    start_time = time.time()
-
     objective = cp.Maximize(Profit)
     problem = cp.Problem(objective, constraints)
     solver_name = _choose_solver("GUROBI")
-    result_status = problem.solve(solver=solver_name, verbose=False)
-
-    end_time = time.time()
-    solve_time = end_time - start_time
+    problem.solve(solver=solver_name, verbose=False)
 
     # ========== 存储优化结果 ==========
     ok = problem.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
     if ok:
-        print(f"slot {cur_slot}: rolling bid ok at t_cap {t_cap}, time: {solve_time:.4f}s")
+        print(f"slot {cur_slot}: rolling bid ok at t_cap {t_cap}")
         # 更新剩余时段的投标
         result["Bid_R_rev"][cur_slot_idx + 1 :] = Bid_R.value
         result["Bid_P_rev"][cur_slot_idx + 1 :] = Bid_P.value
         result["P_DER_rev"][:, cur_slot_idx + 1 :] = P_DER.value
         result["R_DER_rev"][:, cur_slot_idx + 1 :] = R_DER.value
-        
-        # 记录求解时间
-        if "solve_times" not in result:
-            result["solve_times"] = []
-        result["solve_times"].append(solve_time)
+        # result["p_none_reg"] = P_ch.value[none_reg, 0, 0]  # 非调频资源的充电功率
     else:
-        print(f"slot {cur_slot}: rolling bid failed at t_cap {t_cap}, status={problem.status}, solver={solver_name}")
-        # 打印调试信息
-        if uncertainty_method in ["FICA", "CVaR"]:
-            print(f"  NOFSCEN_used={NOFSCEN_used}, NOFDER={NOFDER}, rest_slots={rest_slots}")
-            print(f"  Bid_R shape: {Bid_R.shape}, Bid_P shape: {Bid_P.shape}")
-            print(f"  Z shape: {Z.shape if Z is not None else 'None'}, VaR shape: {VaR.shape if VaR is not None else 'None'}")
-            print(f"  Price range: price_e[{cur_slot_idx+1}:{cur_slot_idx+1+rest_slots}] min={price_e.min():.4f}, max={price_e.max():.4f}")
-            print(f"  Hourly distribution shape: {hourly_distribution.shape}")
-    
-    return solve_time
+        print(f"slot {cur_slot}: rolling bid failed at t_cap {t_cap}")
