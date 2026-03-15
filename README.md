@@ -60,6 +60,27 @@ Run `main` in `optimal_bidding_control` to obtain the most basic results.
 #### Visualization of Results (visualise)
 - Visualization and plotting of results, where `cost_wrt_method` is a program for analyzing main results of various methods.
 
+#### Full Lifecycle Investment Assessment (lifecycle_assessment)
+This module performs a complete techno-economic lifecycle assessment of the VPP, accounting for both long-run operational revenue and battery capacity degradation over the project lifetime.
+
+**Usage**: run `lifecycle_assessment_main` from the `lifecycle_assessment/` directory (no solver required — reads pre-computed `results/` files).
+
+| File | Purpose |
+|------|---------|
+| `lifecycle_parameters.m` | Defines CAPEX, annual O&M, degradation coefficients, and financial parameters (discount rate, project lifetime) for all five resource types |
+| `capacity_degradation_model.m` | Two-factor empirical degradation model for ES and EV batteries (calendar aging + cycle aging) and linear degradation for PV; returns normalised remaining capacity for each year |
+| `compute_irr.m` | Newton-Raphson solver for the Internal Rate of Return (IRR) |
+| `lifecycle_assessment_main.m` | Main script: loads 14-day simulation results, scales to annual revenue with seasonal correction, propagates capacity decline year by year (with ES battery replacement at end-of-life), computes NPV / IRR / simple and dynamic payback period, prints a full summary, and runs a sensitivity table over discount-rate × degradation-rate scenarios |
+| `plot_lifecycle_results.m` | Six-panel figure: capacity degradation curves, annual revenue vs. O&M cost, annual net cash flow, cumulative discounted/undiscounted cash flow with payback markers, lifetime cost breakdown, and financial metrics text panel |
+
+**Key outputs** (saved to `results/lifecycle_assessment_result.mat` and PDF/PNG plots):
+- Net Present Value (NPV)
+- Internal Rate of Return (IRR)
+- Simple Payback Period
+- Dynamic (Discounted) Payback Period
+- Year-by-year capacity, revenue, and cash-flow trajectories
+- Scenario analysis table (3 discount rates × 3 degradation multipliers)
+
 **Note**: For foundational understanding, focus on the programs in bold to understand:
 1. How to model various resources and determine parameters (parameters, _std).
 2. Optimal bidding programs and fast decomposition algorithms (maxProfit_1, maxProfit_t, fastControl_prepare, fastControl_implement).
@@ -135,6 +156,27 @@ ops = sdpsettings('debug',0,'solver','gurobi','savesolveroutput',1,'savesolverin
 
 #### 结果可视化（visualise）
 - 结果的可视化和画图，其中 `cost_wrt_method` 是统计各种方法主要结果的程序。
+
+#### 全生命周期投资评估（lifecycle_assessment）
+该模块对虚拟电厂进行完整的技术经济全生命周期评估，同时考虑长期运营收益和项目寿命内电池容量衰减两个维度。
+
+**使用方法**：在 `lifecycle_assessment/` 目录下运行 `lifecycle_assessment_main`（无需优化求解器，直接读取 `results/` 中的预计算结果文件）。
+
+| 文件 | 功能说明 |
+|------|---------|
+| `lifecycle_parameters.m` | 定义所有五类资源的 CAPEX、年度运维费、衰减系数及财务参数（折现率、项目寿命） |
+| `capacity_degradation_model.m` | 储能与电动汽车电池的两因素经验衰减模型（日历老化 + 循环老化）及光伏线性衰减模型，逐年返回归一化剩余容量 |
+| `compute_irr.m` | 基于牛顿-拉弗森法的内部收益率（IRR）求解器 |
+| `lifecycle_assessment_main.m` | 主脚本：加载14天仿真结果，利用季节修正系数折算为年度收益，逐年传播容量衰减（含储能寿命终止时的替换），计算 NPV / IRR / 静态与动态回收期，打印完整评估摘要，并对折现率×衰减倍率进行情景分析 |
+| `plot_lifecycle_results.m` | 六子图可视化：容量衰减曲线、年度收益与运维成本、年度净现金流、含回收期标记的累计现金流、全生命周期成本构成，以及财务指标文字面板 |
+
+**主要输出**（保存至 `results/lifecycle_assessment_result.mat` 及 PDF/PNG 图表）：
+- 净现值（NPV）
+- 内部收益率（IRR）
+- 静态回收期
+- 动态（折现）回收期
+- 逐年容量、收益及现金流轨迹
+- 情景分析表（3个折现率 × 3个衰减倍率）
 
 **注意**：对于基础认识，只需关注加粗的程序，了解：
 1. 如何实现各类资源标准化建模以及参数的确定（parameters, _std）。
