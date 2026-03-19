@@ -6,7 +6,7 @@ import numpy as np
 import openpyxl
 import os
 from typing import Tuple, Dict
-
+import pandas as pd
 
 def prepare_regd_distribution(
     day_reg: int = 22,
@@ -39,14 +39,6 @@ def prepare_regd_distribution(
     filename = os.path.join(base_dir, 'data_prepare', '07 2020.xlsx')
     sheet = 'Dynamic'
 
-    # 使用 pandas 读取
-    import pandas as pd
-    # Excel: B-AF列（31列），A列是时间，跳过
-    # MATLAB: xlRange = 'B2:AF43202' -> B到AF列（30列，0-based索引1-30）
-    # MATLAB读取范围是B2:AF43202，从第2行第2列(B)开始，到第43202行第32列(AF)
-    # 所以是 43201行 × 31列（B到AF）
-    # 第1行（Excel第2行）到第43201行（Excel第43202行）
-
     df = pd.read_excel(filename, header=None, sheet_name=sheet, usecols=range(1, 32))  # 读取B-AF列（31列）
 
     # 转换为数值类型，跳过第0行（表头）
@@ -58,15 +50,8 @@ def prepare_regd_distribution(
         except:
             Signals[:, col_idx] = 0.0
 
-    # 数据清理，限制在 [-1, 1] 范围内
-    Signals[Signals < -1] = -1
-    Signals[Signals > 1] = 1
-
-    # MATLAB: signal_length = 43202 - 2 = 43200 (去掉第1行和最后一行)
-    # 但这里我们直接去掉了最后一行（第43201行）
     Signals = Signals[:43200, :]  # (43200, 31)
 
-    # 数据清理，限制在 [-1, 1] 范围内
     Signals[Signals < -1] = -1
     Signals[Signals > 1] = 1
 
@@ -96,9 +81,7 @@ def prepare_regd_distribution(
     hourly_Mileage = np.zeros(NOFSLOTS)
 
     for hour in range(NOFSLOTS):
-        # 获取历史数据 (过去nofHisDays天，每天该小时的信号)
-        # MATLAB: hour = 1:24 (1-based), 时间范围: 1 + (hour-1)*1800 : hour*1800
-        # Python: hour = 0:23 (0-based), 时间范围: hour*1800 : (hour+1)*1800
+
         start_idx = hour * 1800
         end_idx = (hour + 1) * 1800
 
@@ -108,10 +91,8 @@ def prepare_regd_distribution(
         for day_idx in range(day_reg - nofHisDays, day_reg):
             signals = Signals[start_idx:end_idx, day_idx]  # (1800,)
 
-            # 初始化分布
             Distribution = np.zeros(n_intervals)
 
-            # 扫描获取pdf
             for t_cap in range(len(signals)):
                 signal_val = signals[t_cap]
 
@@ -119,7 +100,6 @@ def prepare_regd_distribution(
                     if signal_val > 0.9999:  # 考虑为1
                         s_idx = n_intervals - 1
                     else:
-                        # s_idx = ceil(signal / diff) + 1/diff + 1
                         s_idx = int(np.ceil(signal_val / diff) + 1 / diff + 1)
                 else:  # 向下频率调节
                     if signal_val < -0.9999:  # 考虑为-1
@@ -142,14 +122,12 @@ def prepare_regd_distribution(
                 # 如果该小时没有数据，使用均匀分布
                 Distribution = np.ones(n_intervals) / n_intervals
 
-            # 调试：检查每天的概率和
             if hour == 0:
                 print(f"    第{day_idx_offset+1}天（day_idx={day_idx}）分布: sum={sum_dist:.0f}, 归一化后sum={Distribution.sum():.6f}")
 
             Distributions[day_idx_offset, :] = Distribution
             day_idx_offset += 1
 
-        # 平均分布
         avg_Distribution = np.mean(Distributions, axis=0)
         hourly_Distribution[hour, :] = avg_Distribution
 
@@ -157,8 +135,7 @@ def prepare_regd_distribution(
         Mileage_values = np.zeros(nofHisDays)
         day_idx_offset = 0
         for day_idx in range(day_reg - nofHisDays, day_reg):
-            # MATLAB: signals = Signals(1 + (hour - 1) * 1800 : hour * 1800, day_idx);
-            # Python: signals = Signals(hour * 1800 : (hour + 1) * 1800, day_idx);
+
             signals = Signals[start_idx:end_idx, day_idx]
             mileage = np.sum(np.abs(np.diff(signals)))
             Mileage_values[day_idx_offset] = mileage
@@ -177,7 +154,6 @@ def prepare_regd_distribution(
 
 
 if __name__ == "__main__":
-    # 测试
     hourly_Dist, hourly_Mileage, d_s, Signal_day = prepare_regd_distribution()
     print(f"\n测试通过!")
     print(f"d_s: {d_s}")

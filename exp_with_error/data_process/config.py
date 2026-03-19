@@ -61,6 +61,8 @@ class EVConfig:
     pr_ch: float = 0.0  # $/MWh
     # 离开前能量下限调整系数
     pre_departure_energy_factor: float = 0.9
+    aggregate_evs: bool = True  # 是否按调度计划聚合EV
+    max_evs: int = None  # 最大EV数量限制
 
     @property
     def energy_init(self) -> float:

@@ -151,19 +151,16 @@ def max_profit_t(ctx: Dict[str, Any]) -> None:
     ]
 
     # 7. 响应能力约束 (软约束)
-    theta_factor = 1.0 - delta_t_req * (1.0 - param_std.theta)
     # 向下调频约束: 能量不能低于下限 (允许松弛delta_E3)
     constraints += [
-        cp.multiply(theta_factor[:, None], E[:, 1:-1])
+        E[:, 1:-1]
         - delta_t_req * (param_std.eta_dis @ P_dis[:, 1:, -1])
-        + delta_t_req * param_std.wOmiga[:, cur_slot_idx + 1 :]
         >= param_std.energy_lower_limit[:, cur_slot_idx:-1] - delta_E3
     ]
     # 向上调频约束: 能量不能超过上限 (允许松弛delta_E4)
     constraints += [
-        cp.multiply(theta_factor[:, None], E[:, 1:-1])
+        E[:, 1:-1]
         - delta_t_req * (param_std.eta_ch @ P_ch[:, 1:, 0])
-        + delta_t_req * param_std.wOmiga[:, cur_slot_idx + 1 :]
         <= param_std.energy_upper_limit[:, cur_slot_idx:-1] + delta_E4
     ]
     constraints += [0 <= delta_E3, 0 <= delta_E4]  # 松弛变量非负
@@ -176,20 +173,17 @@ def max_profit_t(ctx: Dict[str, Any]) -> None:
     # 剩余时段能量更新
     constraints += [
         E[:, 2:]
-        == cp.multiply(param_std.theta[:, None], E[:, 1:-1])
+        ==  E[:, 1:-1]
         + (param_std.eta_ch @ temp_ch[:, 1:]) * delta_t
         - (param_std.eta_dis @ temp_dis[:, 1:]) * delta_t
-        + param_std.wOmiga[:, cur_slot_idx + 1 :] * delta_t
     ]
 
     # 当前时段剩余时间的能量更新
-    theta_rest = 1.0 - delta_t_rest * (1.0 - param_std.theta)
     constraints += [
         E[:, 1]
-        == cp.multiply(theta_rest, E[:, 0])
+        == E[:, 0]
         + (param_std.eta_ch @ temp_ch[:, 0]) * delta_t_rest
         - (param_std.eta_dis @ temp_dis[:, 0]) * delta_t_rest
-        + param_std.wOmiga[:, cur_slot_idx] * delta_t_rest
     ]
 
     # 9. 非调频资源约束

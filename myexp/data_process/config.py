@@ -58,6 +58,8 @@ class EVConfig:
     eta_dis: float = 0.90
     eta_ch: float = 0.90
     pr_dis: float = 150.0  # $/MWh
+    aggregate_evs: bool = True  # 是否按调度计划聚合EV
+    max_evs: int = None  # 最大EV数量限制
     pr_ch: float = 0.0  # $/MWh
     # 离开前能量下限调整系数
     pre_departure_energy_factor: float = 0.9

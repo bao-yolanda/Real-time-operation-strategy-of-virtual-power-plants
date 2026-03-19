@@ -36,7 +36,11 @@ def prepare_std_parameters(
     NOFEV = param.NOFEV
     NOFDER = NOFPV + 1 + NOFEV
 
-    print(f"  标准化参数: NOFDER={NOFDER}, NOFSLOTS={NOFSLOTS}")
+    # EV聚合系数：如果有聚合，每组乘以组内车辆数；否则每辆EV系数=1
+    ev_counts = param.ev_group_counts if param.ev_group_counts is not None else np.ones(NOFEV, dtype=int)
+
+    print(f"  标准化参数: NOFDER={NOFDER}, NOFSLOTS={NOFSLOTS}"
+          f"{f', EV聚合({NOFEV}组)' if param.ev_group_counts is not None else ''}")
 
     # ========== 初始能量 ==========
     # Matlab代码:
@@ -46,7 +50,7 @@ def prepare_std_parameters(
     energy_init_list = [
         np.array([pv_cfg.energy_init]),  # PV初始能量
         np.array([param.energy_init_es]),  # ES
-        np.full(NOFEV, param.energy_init_ev),  # EV
+        param.energy_init_ev * ev_counts,  # EV（按组内车辆数缩放）
     ]
     energy_init = np.concatenate(energy_init_list)
     param_std = {'energy_init': energy_init}
@@ -58,7 +62,7 @@ def prepare_std_parameters(
     energy_upper_limit_list = [
         np.full(NOFSLOTS, pv_cfg.energy_upper_limit),  # PV能量上限
         np.full(NOFSLOTS, param.energy_upper_limit_es),
-        *[np.full(NOFSLOTS, param.energy_upper_limit_ev) for _ in range(NOFEV)],  # EV
+        *[np.full(NOFSLOTS, param.energy_upper_limit_ev * ev_counts[i]) for i in range(NOFEV)],  # EV
     ]
     energy_upper_limit = np.vstack(energy_upper_limit_list)
     param_std['energy_upper_limit'] = energy_upper_limit
@@ -67,7 +71,7 @@ def prepare_std_parameters(
     energy_end_list = [
         pv_cfg.energy_end,  # PV
         param.energy_init_es,  # ES回到初始值
-        *[param.energy_end_ev] * NOFEV,  # EV (每个EV相同)
+        *[param.energy_end_ev * ev_counts[i] for i in range(NOFEV)],  # EV
     ]
     energy_end = np.array(energy_end_list)
     param_std['energy_end'] = energy_end
@@ -76,7 +80,7 @@ def prepare_std_parameters(
     energy_lower_limit_base_list = [
         np.full(NOFSLOTS, pv_cfg.energy_lower_limit),  # PV
         np.full(NOFSLOTS, param.energy_lower_limit_es),
-        *[np.full(NOFSLOTS, param.energy_lower_limit_ev) for _ in range(NOFEV)],  # EV
+        *[np.full(NOFSLOTS, param.energy_lower_limit_ev * ev_counts[i]) for i in range(NOFEV)],  # EV
     ]
     energy_lower_limit_base = np.vstack(energy_lower_limit_base_list)
 
@@ -91,7 +95,7 @@ def prepare_std_parameters(
     power_dis_upper_limit = np.vstack([
         param.power_dis_upper_limit_pv.reshape(1, -1),  # PV (NOFPV, NOFSLOTS)
         np.full((1, NOFSLOTS), param.power_dis_upper_limit_es),  # ES (1, NOFSLOTS)
-        (np.full((NOFEV, NOFSLOTS), param.power_dis_upper_limit_ev) * param.u),  # EV (NOFEV, NOFSLOTS)
+        (np.full((NOFEV, NOFSLOTS), param.power_dis_upper_limit_ev) * param.u * ev_counts[:, None]),  # EV
     ])
     param_std['power_dis_upper_limit'] = power_dis_upper_limit
 
@@ -103,7 +107,7 @@ def prepare_std_parameters(
     power_ch_upper_limit_list = [
         np.zeros((NOFPV, NOFSLOTS)),  # PV不能充电
         np.full((1, NOFSLOTS), param.power_ch_upper_limit_es),  # ES
-        (np.full((NOFEV, NOFSLOTS), param.power_ch_upper_limit_ev) * param.u),  # EV
+        (np.full((NOFEV, NOFSLOTS), param.power_ch_upper_limit_ev) * param.u * ev_counts[:, None]),  # EV
     ]
     power_ch_upper_limit = np.vstack(power_ch_upper_limit_list)
     param_std['power_ch_upper_limit'] = power_ch_upper_limit

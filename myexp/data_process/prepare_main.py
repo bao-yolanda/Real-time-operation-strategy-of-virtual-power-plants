@@ -131,7 +131,7 @@ def prepare_main_data(
         's_perf': s_perf,
 
         # 资源信息
-        'resource_names': ['pv', 'es', 'ev', 'tcl', 'ipp'],
+        'resource_names': ['pv', 'es', 'ev'],
     }
 
     NOFDER = NOFPV + 1 + param.NOFEV 

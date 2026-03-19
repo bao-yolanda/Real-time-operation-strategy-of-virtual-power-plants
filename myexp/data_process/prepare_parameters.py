@@ -48,6 +48,47 @@ class ResourceParameters:
     pr_ch_ev: float
     NOFEV: int
     u: np.ndarray  # 充电状态矩阵 (NOFEV, NOFSLOTS)
+    ev_group_counts: np.ndarray = None  # 每组EV的数量 (NOFEV,)，聚合模式下有效
+    ev_group_mapping: dict = None  # 组索引 -> 原始EV索引列表
+
+
+def _aggregate_ev_by_schedule(
+    EV_data: np.ndarray,
+    u: np.ndarray,
+    NOFSLOTS: int,
+) -> tuple:
+    """
+    按(arrive_slot, depart_slot)对EV进行聚合。
+
+    同一调度计划的EV具有相同的约束结构，可以合并为一个"super-EV"，
+    其功率和容量按组内车辆数等比例放大。
+
+    Returns:
+        u_agg: 聚合后的u矩阵 (n_groups, NOFSLOTS)
+        group_counts: 每组的EV数量 (n_groups,)
+        group_mapping: {group_idx: [原始EV索引列表]}
+        n_groups: 组数
+    """
+    schedule_groups = {}
+    for idx in range(len(EV_data)):
+        arrive = int(EV_data[idx, 1])
+        depart = int(EV_data[idx, 2])
+        key = (arrive, depart)
+        if key not in schedule_groups:
+            schedule_groups[key] = []
+        schedule_groups[key].append(idx)
+
+    n_groups = len(schedule_groups)
+    u_agg = np.zeros((n_groups, NOFSLOTS))
+    group_counts = np.zeros(n_groups, dtype=int)
+    group_mapping = {}
+
+    for group_idx, (key, ev_indices) in enumerate(sorted(schedule_groups.items())):
+        u_agg[group_idx, :] = u[ev_indices[0], :]
+        group_counts[group_idx] = len(ev_indices)
+        group_mapping[group_idx] = ev_indices
+
+    return u_agg, group_counts, group_mapping, n_groups
 
 
 def prepare_parameters(
@@ -154,8 +195,24 @@ def prepare_parameters(
             if arrive_slot <= jdx <= depart_slot:
                 u[idx, jdx] = 1.0
 
-    print(f"  EV数量: {NOFEV}")
+    print(f"  EV原始数量: {NOFEV}")
     print(f"  在场EV数量范围: [{u.sum(axis=0).min():.0f}, {u.sum(axis=0).max():.0f}]")
+
+    # ========== EV聚合：按(arrive, depart)分组 ==========
+    ev_group_counts = None
+    ev_group_mapping = None
+
+    if hasattr(ev_cfg, 'aggregate_evs') and ev_cfg.aggregate_evs:
+        u_agg, ev_group_counts, ev_group_mapping, n_groups = _aggregate_ev_by_schedule(
+            EV_data, u, NOFSLOTS
+        )
+        print(f"  EV聚合: {NOFEV}辆 -> {n_groups}组")
+        for gid, indices in ev_group_mapping.items():
+            arr = int(EV_data[indices[0], 1])
+            dep = int(EV_data[indices[0], 2])
+            print(f"    组{gid}: {len(indices)}辆, 到达={arr}, 离开={dep}")
+        u = u_agg
+        NOFEV = n_groups
 
     # ========== 组装参数对象 ==========
     param = ResourceParameters(
@@ -193,6 +250,8 @@ def prepare_parameters(
         pr_ch_ev=pr_ch_ev,
         NOFEV=NOFEV,
         u=u,
+        ev_group_counts=ev_group_counts,
+        ev_group_mapping=ev_group_mapping,
     )
 
     # ========== 转换为字典 (兼容旧代码) ==========
@@ -226,6 +285,8 @@ def prepare_parameters(
         'pr_ch_ev': pr_ch_ev,
         'NOFEV': NOFEV,
         'u': u,
+        'ev_group_counts': ev_group_counts,
+        'ev_group_mapping': ev_group_mapping,
     }
 
     return param, param_dict

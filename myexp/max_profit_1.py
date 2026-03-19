@@ -111,21 +111,17 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
         [param_std.energy_lower_limit[:, :1], param_std.energy_lower_limit[:, :-1]],
         axis=1,
     )
-    theta_factor = 1.0 - delta_t_req * (1.0 - param_std.theta)  # 衰减因子
-
     # 7a. 向下调频约束: 能量不能低于下限
     constraints += [
-        cp.multiply(theta_factor[:, None], E[:, :-1])           # 衰减后的能量
+        E[:, :-1]    # 衰减后的能量
         - delta_t_req * (param_std.eta_dis @ P_dis[:, :, -1])  # 最大放电消耗
-        + delta_t_req * param_std.wOmiga                       # 外部影响
         >= lower_shift                                          # 能量下限
     ]
 
     # 7b. 向上调频约束: 能量不能超过上限
     constraints += [
-        cp.multiply(theta_factor[:, None], E[:, :-1])           # 衰减后的能量
+        E[:, :-1]         # 衰减后的能量
         - delta_t_req * (param_std.eta_ch @ P_ch[:, :, 0])    # 最大充电输入
-        + delta_t_req * param_std.wOmiga                       # 外部影响
         <= param_std.energy_upper_limit                        # 能量上限
     ]
 
@@ -136,10 +132,9 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
 
     constraints += [
         E[:, 1:]                                               # 下一时刻能量
-        == cp.multiply(param_std.theta[:, None], E[:, :-1])  # 衰减项
+        ==  E[:, :-1] # 衰减项
         + (param_std.eta_ch @ temp_ch) * delta_t              # 充电输入项
         - (param_std.eta_dis @ temp_dis) * delta_t             # 放电输出项
-        + param_std.wOmiga * delta_t                           # 外部影响
     ]
 
     # 9. 非调频资源约束: 某些资源(如IPP的某些环节)不参与调频
