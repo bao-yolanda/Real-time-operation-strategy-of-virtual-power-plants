@@ -1,0 +1,12 @@
+﻿field,value
+horizon,24.0
+delta_t_h,1.0
+grid_limit_mw,3.2
+es_energy_init_mwh,1.0
+es_energy_min_mwh,0.2
+es_energy_max_mwh,1.8
+ev_count,12.0
+ev_forecast_total_demand_mwh,0.36000000000000004
+ev_actual_total_demand_mwh,0.35357960312071385
+dro_samples,250.0
+dro_alpha,0.15

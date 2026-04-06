@@ -25,7 +25,6 @@ def _normalize_param(param: Any) -> Any:
     param.hourly_Mileage = as_1d(param.hourly_Mileage)
     param.hourly_Distribution = as_2d(param.hourly_Distribution)
     param.d_s = as_1d(param.d_s)
-    param.index_none_reg = as_1d(param.index_none_reg).astype(int)
     param.s_perf = float(param.s_perf)
     return param
 
@@ -111,7 +110,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
     print(f"delta_t={delta_t}, delta_t_req={delta_t_req}, M={M}")
     print(f"数据源: {data_source}, 资源组成: PV + ES + EV")
 
-    NOFTCAP_bid = 900
+    NOFTCAP_bid = 1200
     NOFTCAP_ctrl = 30
 
     # ========== 初始化结果字典 ==========

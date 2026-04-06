@@ -1,0 +1,513 @@
+\chapter{基于ADMM的虚拟电厂两阶段分布式优化调度}
+\label{chap:vpp_admm}
+
+\section{引言}
+\label{sec:vpp_admm_intro}
+
+虚拟电厂的本质，是在统一调度框架下将分散的光伏、储能和电动汽车等柔性资源组织为可参与市场交易和辅助服务响应的聚合体。对于市场运营方而言，虚拟电厂需要具备稳定的基础功率交付能力和调频响应能力；对于资源拥有者而言，调度策略不仅影响市场收益，还直接影响设备运行强度、能量状态演化以及电池退化成本。因此，虚拟电厂调度并非单纯的功率分配问题，而是一个同时耦合市场收益、设备物理约束和不确定调频信号的动态优化问题。
+
+本文关注的场景是虚拟电厂同时参与能量市场与调频市场。日前阶段，聚合器依据价格预测、信号统计特征和资源约束，确定全天的基础功率投标与调频容量投标；运行过程中，随着实际信号与资源状态逐步显现，聚合器还需要依据当前状态对后续时段滚动修正，以保证执行可行性并维持收益水平。在这一过程中，光伏与站级储能通常由聚合器直接掌握，而电动汽车用户分散、异质且具有明显的隐私属性。如果采用集中式建模，聚合器需要完整掌握所有用户参数、状态轨迹和局部约束，这在工程上并不理想。
+
+基于上述背景，本章构建面向虚拟电厂两阶段调度的分布式优化框架。首先，对全文采用的索引、信号、变量和收益口径进行统一定义，以保证后续模型推导在符号层面保持一致。随后，建立包含日前投标与滚动修正两个层次的优化模型，并对用户侧资源和调频信号不确定性进行统一建模。在此基础上，进一步分析集中式问题中的耦合结构，采用交替方向乘子法（Alternating Direction Method of Multipliers, ADMM）实现聚合器侧与用户侧问题的解耦，从而形成兼顾市场收益、设备约束与隐私需求的去中心化求解方法。最后，通过算例分析验证所提模型与算法在经济性、可靠性和可扩展性等方面的综合表现。
+
+本章按照“问题定义—模型构建—算法设计—实验验证”的逻辑顺序展开，依次讨论虚拟电厂的优化目标、调频信号不确定性的建模方式、用户侧资源进入统一模型的方法，以及分布式协调机制的实现路径等关键问题。
+
+\section{数据驱动的虚拟电厂两阶段分布式优化调度结构与模型}
+\label{sec:vpp_admm_model}
+
+\subsection{虚拟电厂两阶段优化调度模型}
+\label{subsec:vpp_admm_model_two_stage}
+
+\subsubsection{问题场景与两阶段调度流程}
+\label{subsubsec:vpp_admm_model_two_stage_process}
+
+本文考虑的虚拟电厂由聚合器侧资源和用户侧资源共同构成。其中，聚合器侧资源主要包括光伏和站级储能，用户侧资源主要包括可参与有序充放电与调频响应的电动汽车。聚合器作为市场参与主体，统一向外部市场提交基础功率投标和调频容量投标；资源侧则根据聚合器的调度结果，在满足各自物理约束的前提下完成实际执行。由此，市场层面的决策与资源层面的执行构成了典型的“聚合投标—局部响应”结构。
+
+从时间维度看，本文采用“两阶段优化 + 实时执行”的调度流程。第一阶段为日前优化阶段，其任务是在给定价格信号和调频信号统计特征的情况下，确定全天各离散时段的基础功率投标、调频容量投标以及对应的资源分配方案。第二阶段为滚动修正阶段，其任务是在实际运行过程中结合当前能量状态、已执行功率和剩余时域，对未来时段的投标和资源分配进行修正。实时控制阶段则不再重新求解市场问题，而是在滚动修正结果基础上按照高时间分辨率对资源进行功率分派与状态更新。
+
+从决策逻辑上看，日前阶段承担基于预测信息和统计信息的全局规划功能，滚动阶段承担基于当前真实状态的动态修正功能，实时控制阶段则承担将调度计划落实为资源动作的执行功能。三者之间形成递进关系：日前优化提供基线计划，滚动修正提升执行可行性与收益稳定性，实时控制保障分钟级乃至秒级的实际跟踪效果。后续建模与算法设计均围绕该总体流程展开。
+
+需要进一步说明的是，本文中的滚动修正属于针对剩余时域的条件优化，而非对完整日前问题的无条件重算。具体而言，在每一个固定的滚动更新时刻，模型以前一阶段已经执行的功率轨迹和当前实测能量状态作为条件，仅对尚未执行的剩余时段重新优化。相应地，滚动触发机制采用时间驱动方式，即按照预设的滚动更新间隔周期性执行；实时控制则在更细时间尺度上根据实际调频信号完成功率分派与状态更新。
+
+\subsubsection{符号、集合与索引定义}
+\label{subsubsec:vpp_admm_model_two_stage_notation}
+
+为避免后续模型推导中出现索引歧义，本文对主要集合、索引和变量维度作如下统一约定：
+\begin{table}[htbp]
+\centering
+\caption{主要集合、索引与记号定义}
+\label{tab:vpp_admm_symbols}
+\begin{tabular}{ll}
+\hline
+记号 & 含义 \\
+\hline
+$\mathcal{T}=\{1,2,\ldots,T\}$ & 日前优化离散时段集合 \\
+$\mathcal{T}_k^{+}=\{k,k+1,\ldots,T\}$ & 以滚动时刻 $k$ 为起点的剩余时段集合 \\
+$\mathcal{S}=\{1,2,\ldots,S\}$ & 调频信号离散场景集合 \\
+$\mathcal{N}$ & 全部资源集合 \\
+$\mathcal{C}$ & 聚合器中心块资源集合，本文主要指光伏与站级储能 \\
+$\mathcal{N}^{\mathrm{EV}}$ & 用户侧电动汽车用户或用户组集合，满足 $\mathcal{N}=\mathcal{C}\cup\mathcal{N}^{\mathrm{EV}}$ \\
+$t$ & 日前或滚动优化中的离散时段索引 \\
+$k$ & 滚动优化起始时段索引 \\
+$s$ & 调频信号场景索引 \\
+$\tau$ & 实时执行阶段的高时间分辨率控制索引 \\
+$s^{\max}=\arg\max_{s\in\mathcal{S}} d_s$ & 最大放电激活场景索引 \\
+$s^{\min}=\arg\min_{s\in\mathcal{S}} d_s$ & 最大充电激活场景索引 \\
+\hline
+\end{tabular}
+\end{table}
+
+在变量维度方面，$P_t^{\mathrm{bid}}$、$R_t^{\mathrm{bid}}$ 和 $\bar d_t$ 均表示时段 $t$ 上的标量；当写为 $P^{\mathrm{bid}}=[P_t^{\mathrm{bid}}]_{t\in\mathcal{T}}$、$R^{\mathrm{bid}}=[R_t^{\mathrm{bid}}]_{t\in\mathcal{T}}$ 时，则表示跨时域拼接后的向量。类似地，$p_{i,t}$ 与 $r_{i,t}$ 表示资源 $i$ 在单个时段上的标量决策，而 $p_i=[p_{i,t}]_{t\in\mathcal{T}}$、$r_i=[r_{i,t}]_{t\in\mathcal{T}}$ 表示对应的时域向量。滚动模型中的 $\hat e_{i,k}$、$\hat p_{i,k}$ 和 $\hat r_{i,k}$ 分别表示滚动时刻 $k$ 的实测能量状态和已执行决策，用以与日前规划量区分。
+
+\subsubsection{调度目标与收益构成}
+\label{subsubsec:vpp_admm_model_two_stage_profit}
+
+本文采用统一的收益口径描述调度目标，即在满足资源物理约束和市场规则的前提下，使虚拟电厂总净收益最大。这里的总净收益并非单纯指市场收入，而是指市场收益扣除设备退化成本后的净值。采用该口径的原因在于，若仅追求外部收入而忽略电池退化，所得调度策略虽可能在短期内表现出较高收益，但在工程运行层面缺乏可持续性。
+
+首先定义时段 $t$ 的期望调频信号为
+\begin{equation}
+\bar d_t = \sum_{s \in \mathcal{S}} \pi_{t,s} d_s.
+\end{equation}
+该量表示优化阶段对调频激活程度的统计期望。基于此，时段 $t$ 的能量收益可表示为
+\begin{equation}
+\mathcal{R}_t^{\mathrm{e}} = \lambda_t^{\mathrm{e}} \left(P_t^{\mathrm{bid}} + \bar d_t R_t^{\mathrm{bid}}\right) \Delta t,
+\end{equation}
+其中，$P_t^{\mathrm{bid}}$ 对应基础功率成交收益，$\bar d_t R_t^{\mathrm{bid}}$ 对应调频能量结算项。由此，能量收益既包含基准成交电量，也包含因调频激活带来的附加能量交换收益。
+
+进一步地，时段 $t$ 的容量类收益定义为
+\begin{equation}
+\mathcal{R}_t^{\mathrm{cap}} = \kappa \left(\lambda_t^{\mathrm{cap}} + \lambda_t^{\mathrm{mil}} m_t\right) R_t^{\mathrm{bid}} \Delta t.
+\end{equation}
+上式将调频容量收益与调频里程收益统一纳入容量类收益进行表述。其中，$\lambda_t^{\mathrm{cap}} R_t^{\mathrm{bid}}$ 反映调频容量占用所带来的收益，$\lambda_t^{\mathrm{mil}} m_t R_t^{\mathrm{bid}}$ 反映调频里程结算所带来的收益，二者共同构成虚拟电厂因提供灵活性服务而获得的市场回报。
+
+与上述收益相对应，时段 $t$ 的电池退化费用定义为
+\begin{equation}
+\mathcal{C}_t^{\mathrm{deg}} = \sum_{s \in \mathcal{S}} \pi_{t,s} \sum_{i \in \mathcal{N}} \left(c_i^{\mathrm{dis}} p_{i,t,s}^{\mathrm{dis}} + c_i^{\mathrm{ch}} p_{i,t,s}^{\mathrm{ch}}\right) \Delta t.
+\end{equation}
+该式表示不同调频场景下资源因充放电行为引起的退化成本在概率加权后的期望值。由于光伏本身不承担电池退化，因此其对应的退化系数可取零；储能与电动汽车则需要显式考虑这一成本项。
+
+综合上述定义，虚拟电厂在整个调度时域上的总净收益可写为
+\begin{equation}
+\max \mathcal{J} = \sum_{t \in \mathcal{T}} \left(\mathcal{R}_t^{\mathrm{e}} + \mathcal{R}_t^{\mathrm{cap}} - \mathcal{C}_t^{\mathrm{deg}}\right).
+\end{equation}
+该目标函数反映了本文模型的核心权衡关系：一方面，需要通过投标和调频响应获取尽可能高的市场收益；另一方面，必须控制储能和电动汽车的运行强度，以避免过高的退化代价侵蚀净收益。后续所有优化模型，无论是日前模型、滚动模型还是分布式子问题，均以这一统一收益口径为基础。
+
+\subsubsection{日前优化模型}
+\label{subsubsec:vpp_admm_model_two_stage_dayahead}
+
+日前优化阶段的目标是在调度开始之前，依据已知的价格信号、资源参数和调频信号场景分布，确定全天的基础功率投标、调频容量投标及资源级分配方案。此时尚未观测到实时信号，因此模型所能利用的信息仅包括预测数据和场景统计结果。日前阶段的优化结果既决定了虚拟电厂与市场的交易基线，也为后续滚动修正提供初始参考。
+
+在日前阶段，聚合投标与资源分配之间满足以下平衡关系：
+\begin{equation}
+P_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} p_{i,t}, \qquad
+R_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} r_{i,t}, \quad \forall t \in \mathcal{T}.
+\end{equation}
+该式表明，聚合器提交给市场的总投标必须能够由资源侧分配结果逐项汇总得到。因此，它既是市场层与资源层之间的连接关系，也是后续分布式分解中的核心耦合约束。
+
+考虑调频信号场景后，资源 $i$ 在时段 $t$、场景 $s$ 下的净输出功率满足
+\begin{equation}
+p_{i,t} + r_{i,t} d_s = p_{i,t,s}^{\mathrm{dis}} - p_{i,t,s}^{\mathrm{ch}}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T},\ s \in \mathcal{S}.
+\end{equation}
+该式反映了基础功率计划和调频容量分配如何共同决定资源在不同场景下的实际响应水平。当场景信号 $d_s$ 为正时，系统更偏向于要求放电响应；当 $d_s$ 为负时，则更偏向于要求充电吸收。
+
+资源侧还需要满足功率上下界约束：
+\begin{equation}
+\underline p_{i,t}^{\mathrm{dis}} \le p_{i,t,s}^{\mathrm{dis}} \le \overline p_{i,t}^{\mathrm{dis}},
+\qquad
+\underline p_{i,t}^{\mathrm{ch}} \le p_{i,t,s}^{\mathrm{ch}} \le \overline p_{i,t}^{\mathrm{ch}}.
+\end{equation}
+其中，上下界参数可由资源额定功率、接入状态、出行窗口和聚合规模共同决定。对于电动汽车而言，到达前或离开后的不可用性可以通过上下界取零的方式统一嵌入上述约束之中，因此无须额外引入新的逻辑变量。
+
+能量状态在时域内演化为
+\begin{equation}
+e_{i,t+1} = e_{i,t}
++ \eta_i^{\mathrm{ch}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{ch}} \Delta t
+- \eta_i^{\mathrm{dis}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{dis}} \Delta t,
+\end{equation}
+并满足能量上下界约束
+\begin{equation}
+\underline e_{i,t} \le e_{i,t} \le \overline e_{i,t}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}.
+\end{equation}
+上述两式分别保证资源的能量守恒与安全运行范围。对于储能和电动汽车而言，这部分约束直接决定了后续时段是否仍具备持续调频能力，因此构成模型中最关键的动态约束之一。
+
+为了保证资源在最不利调频激活条件下仍具有可执行性，日前模型还需引入响应能力约束。其基本思想在于：当最大上调或下调需求触发时，资源的能量状态不应立即越过安全边界。该约束本质上限制的是“当前计划功率与未来短时极端调频响应共同作用下”的可行性，因此能够提高日前计划在运行中的鲁棒性。
+
+综上，日前优化模型可以表述为：在功率平衡、功率边界、能量边界、状态演化及响应能力等约束下，最大化整个调度时域上的总净收益。该模型构成全文的原始优化问题，后续 ADMM 设计并不改变其优化目标与物理含义，而是对其求解结构进行重构。
+
+为便于后续分布式分解，本文将日前集中式优化模型进一步写成如下标准形式：
+\begin{subequations}
+\label{prob:vpp_dayahead_formal}
+\begin{align}
+\max_{\substack{P_t^{\mathrm{bid}}, R_t^{\mathrm{bid}},\\
+p_{i,t}, r_{i,t},\\
+p_{i,t,s}^{\mathrm{dis}}, p_{i,t,s}^{\mathrm{ch}}, e_{i,t}}}
+\quad & \sum_{t \in \mathcal{T}} \left(\mathcal{R}_t^{\mathrm{e}} + \mathcal{R}_t^{\mathrm{cap}} - \mathcal{C}_t^{\mathrm{deg}}\right) \label{prob:vpp_dayahead_formal_obj} \\
+\text{s.t.} \quad & P_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} p_{i,t}, \quad \forall t \in \mathcal{T}, \label{prob:vpp_dayahead_formal_bidp} \\
+& R_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} r_{i,t}, \quad \forall t \in \mathcal{T}, \label{prob:vpp_dayahead_formal_bidr} \\
+& p_{i,t} + r_{i,t} d_s = p_{i,t,s}^{\mathrm{dis}} - p_{i,t,s}^{\mathrm{ch}}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T},\ s \in \mathcal{S}, \label{prob:vpp_dayahead_formal_balance} \\
+& \underline p_{i,t}^{\mathrm{dis}} \le p_{i,t,s}^{\mathrm{dis}} \le \overline p_{i,t}^{\mathrm{dis}}, \quad \forall i,t,s, \label{prob:vpp_dayahead_formal_pdis} \\
+& \underline p_{i,t}^{\mathrm{ch}} \le p_{i,t,s}^{\mathrm{ch}} \le \overline p_{i,t}^{\mathrm{ch}}, \quad \forall i,t,s, \label{prob:vpp_dayahead_formal_pch} \\
+& e_{i,t+1} = e_{i,t}
++ \eta_i^{\mathrm{ch}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{ch}} \Delta t
+- \eta_i^{\mathrm{dis}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{dis}} \Delta t,
+\quad \forall i \in \mathcal{N},\ t \in \mathcal{T}, \label{prob:vpp_dayahead_formal_energy} \\
+& \underline e_{i,t} \le e_{i,t} \le \overline e_{i,t}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}, \label{prob:vpp_dayahead_formal_energy_bounds} \\
+& e_{i,t} - \eta_i^{\mathrm{dis}} \Delta t^{\mathrm{req}} p_{i,t,s^{\max}}^{\mathrm{dis}} \ge \underline e_{i,t}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}, \label{prob:vpp_dayahead_formal_resp_down} \\
+& e_{i,t} + \eta_i^{\mathrm{ch}} \Delta t^{\mathrm{req}} p_{i,t,s^{\min}}^{\mathrm{ch}} \le \overline e_{i,t}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}. \label{prob:vpp_dayahead_formal_resp_up}
+\end{align}
+\end{subequations}
+其中，式~\eqref{prob:vpp_dayahead_formal_obj} 对应日前阶段目标函数，式~\eqref{prob:vpp_dayahead_formal_bidp}--式~\eqref{prob:vpp_dayahead_formal_bidr} 对应聚合投标一致性约束，式~\eqref{prob:vpp_dayahead_formal_balance} 对应场景功率平衡约束，式~\eqref{prob:vpp_dayahead_formal_pdis}--式~\eqref{prob:vpp_dayahead_formal_pch} 对应场景功率边界约束，式~\eqref{prob:vpp_dayahead_formal_energy}--式~\eqref{prob:vpp_dayahead_formal_energy_bounds} 对应能量演化与边界约束，式~\eqref{prob:vpp_dayahead_formal_resp_down}--式~\eqref{prob:vpp_dayahead_formal_resp_up} 对应响应能力约束。这里，$s^{\max}$ 与 $s^{\min}$ 分别表示最强放电激活场景与最强充电激活场景，用于刻画极端调频调用下的可行性边界。
+
+需要强调的是，式~\eqref{prob:vpp_dayahead_formal_resp_down}--式~\eqref{prob:vpp_dayahead_formal_resp_up} 约束的并非当前时刻能量状态本身，而是“当前状态在经历一个短时极端调频响应之后”的投影能量状态。因而，这两组约束的作用在于保证资源在最不利激活场景下仍不越过能量边界，而不是对当前状态进行重复约束。
+
+\subsubsection{滚动修正模型}
+\label{subsubsec:vpp_admm_model_two_stage_rolling}
+
+尽管日前优化给出了全天调度基线，但在实际运行过程中，调频信号、实时执行功率和资源能量状态往往会逐步偏离日前统计期望。若仍机械执行日前结果，可能导致后续时段能量状态越界、部分资源失去可调能力，进而影响收益与可行性。基于此，本文在日前优化之后引入滚动修正模型，对剩余时域的投标与资源分配进行动态调整。
+
+设当前滚动时刻对应的调度时段为 $k$，当前实际测得的能量状态为 $\hat e_{i,k}$，已执行的基础功率与调频容量分别为 $\hat p_{i,k}$ 和 $\hat r_{i,k}$，当前时段剩余可调时间为 $\Delta t_k^{\mathrm{rem}}$。滚动阶段的优化对象不再是完整时域 $\mathcal{T}$，而是剩余时域 $\mathcal{T}_k^{+}$。其中，当前时段已执行部分被视为已知事实，当前时段剩余部分与未来时段共同构成新的优化对象。
+
+滚动修正模型在目标函数结构上与日前模型保持一致，即仍以“能量收益 + 容量收益 - 电池退化费用”为目标，但其初始状态、优化时域和部分时段时长均需要重新定义。具体而言，当前时段的能量更新使用剩余时长 $\Delta t_k^{\mathrm{rem}}$ 建模，而后续完整时段仍使用标准时段长度 $\Delta t$ 建模。如此处理，能够同时反映“当前时段部分执行”的实际状态和“未来时段待优化”的决策自由度。
+
+从功能上看，滚动修正并非对日前投标的简单重复求解，而是在保留日前阶段总体策略意图的基础上，利用最新真实状态对未来时段进行校正。其作用主要体现在两个方面：一是提高后续执行的可行性，避免因能量偏差导致调频响应失效；二是提高总净收益的稳定性，尽量减少日前计划与实际运行之间的偏差损失。因此，在完整调度框架中，滚动修正构成连接日前优化与实时执行的重要中间层。
+
+为形式化表示滚动修正问题，定义滚动时刻 $k$ 对应的权重系数
+\begin{equation}
+\omega_t^{(k)} =
+\begin{cases}
+\Delta t_k^{\mathrm{rem}}, & t = k, \\
+\Delta t, & t \in \mathcal{T}_k^{+} \setminus \{k\},
+\end{cases}
+\end{equation}
+其中 $\Delta t_k^{\mathrm{rem}}$ 为当前时段剩余时间长度。则滚动修正模型可写为
+\begin{subequations}
+\label{prob:vpp_rolling_formal}
+\begin{align}
+\max_{\substack{P_t^{\mathrm{bid}}, R_t^{\mathrm{bid}},\\
+p_{i,t}, r_{i,t},\\
+p_{i,t,s}^{\mathrm{dis}}, p_{i,t,s}^{\mathrm{ch}}, e_{i,t}}}
+\quad & \sum_{t \in \mathcal{T}_k^{+}} \omega_t^{(k)} \left[ \lambda_t^{\mathrm{e}} \left(P_t^{\mathrm{bid}} + \bar d_t R_t^{\mathrm{bid}}\right)
++ \kappa \left(\lambda_t^{\mathrm{cap}} + \lambda_t^{\mathrm{mil}} m_t\right) R_t^{\mathrm{bid}}
+- \sum_{s \in \mathcal{S}} \pi_{t,s} \sum_{i \in \mathcal{N}} \left(c_i^{\mathrm{dis}} p_{i,t,s}^{\mathrm{dis}} + c_i^{\mathrm{ch}} p_{i,t,s}^{\mathrm{ch}}\right) \right] \label{prob:vpp_rolling_formal_obj} \\
+\text{s.t.} \quad & e_{i,k} = \hat e_{i,k}, \quad \forall i \in \mathcal{N}, \label{prob:vpp_rolling_formal_init} \\
+& p_{i,k}^{\mathrm{exec}} = \hat p_{i,k},\ r_{i,k}^{\mathrm{exec}} = \hat r_{i,k}, \quad \forall i \in \mathcal{N}, \label{prob:vpp_rolling_formal_exec} \\
+& P_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} p_{i,t}, \quad \forall t \in \mathcal{T}_k^{+}, \label{prob:vpp_rolling_formal_bidp} \\
+& R_t^{\mathrm{bid}} = \sum_{i \in \mathcal{N}} r_{i,t}, \quad \forall t \in \mathcal{T}_k^{+}, \label{prob:vpp_rolling_formal_bidr} \\
+& p_{i,t} + r_{i,t} d_s = p_{i,t,s}^{\mathrm{dis}} - p_{i,t,s}^{\mathrm{ch}}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}_k^{+},\ s \in \mathcal{S}, \label{prob:vpp_rolling_formal_balance} \\
+& \underline p_{i,t}^{\mathrm{dis}} \le p_{i,t,s}^{\mathrm{dis}} \le \overline p_{i,t}^{\mathrm{dis}}, \quad \forall i,t,s, \label{prob:vpp_rolling_formal_pdis} \\
+& \underline p_{i,t}^{\mathrm{ch}} \le p_{i,t,s}^{\mathrm{ch}} \le \overline p_{i,t}^{\mathrm{ch}}, \quad \forall i,t,s, \label{prob:vpp_rolling_formal_pch} \\
+& e_{i,t+1} = e_{i,t}
++ \eta_i^{\mathrm{ch}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{ch}} \omega_t^{(k)}
+- \eta_i^{\mathrm{dis}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{dis}} \omega_t^{(k)},
+\quad \forall i \in \mathcal{N},\ t \in \mathcal{T}_k^{+}, \label{prob:vpp_rolling_formal_energy} \\
+& \underline e_{i,t} \le e_{i,t} \le \overline e_{i,t}, \quad \forall i \in \mathcal{N},\ t \in \mathcal{T}_k^{+}. \label{prob:vpp_rolling_formal_bounds}
+\end{align}
+\end{subequations}
+与日前模型相比，式~\eqref{prob:vpp_rolling_formal_obj}--式~\eqref{prob:vpp_rolling_formal_bounds} 保持了相同的收益结构和约束逻辑，但通过式~\eqref{prob:vpp_rolling_formal_init} 和式~\eqref{prob:vpp_rolling_formal_exec} 将当前真实状态和已执行事实纳入模型，从而使滚动优化能够围绕剩余时域开展条件化修正。
+
+\subsubsection{实时执行与阶段衔接说明}
+\label{subsubsec:vpp_admm_model_two_stage_realtime}
+
+上述日前模型与滚动模型均属于计划层优化模型，其状态更新采用场景概率加权后的期望形式，目的是在优化阶段评估未来时域上的平均收益与平均能量演化。与之相对应，实时执行阶段并不使用期望功率更新状态，而是依据实际调频信号和实时分配结果对资源状态进行逐步更新。若以 $\tau$ 表示实时控制索引，则实时状态更新可抽象表示为
+\begin{equation}
+e_{i,\tau+1}^{\mathrm{rt}} = e_{i,\tau}^{\mathrm{rt}} + \eta_i^{\mathrm{ch}} p_{i,\tau}^{\mathrm{ch,rt}} \Delta \tau - \eta_i^{\mathrm{dis}} p_{i,\tau}^{\mathrm{dis,rt}} \Delta \tau,
+\end{equation}
+其中 $p_{i,\tau}^{\mathrm{ch,rt}}$ 和 $p_{i,\tau}^{\mathrm{dis,rt}}$ 分别表示实时执行阶段的充电功率和放电功率。由此可见，计划层模型与执行层模型在状态更新口径上是区分使用的：前者面向优化期望，后者面向实际执行。
+
+从阶段衔接关系看，滚动修正以上一轮实时执行后的实测状态为初值，因此属于条件优化；实时控制则以滚动修正给出的基础功率计划和调频容量计划为上层参考，在更细时间尺度上完成实际分配。本文采用固定时间间隔触发滚动修正，因此触发机制属于时间驱动。若在实际工程中需要引入偏差越限触发、通信故障触发等事件驱动逻辑，可在当前框架上进一步扩展。
+
+此外，本文聚焦于单日调度问题，故初始能量状态由日前模型给定，而终端能量状态未额外施加独立硬约束。其原因在于，本章主要关注两阶段调度与分布式求解结构的建立；对于跨日连续运行场景，可进一步补充终端能量带约束，例如 $e_{i,T+1}\in[\underline e_i^{\mathrm{term}},\overline e_i^{\mathrm{term}}]$，以增强日间衔接能力。类似地，滚动修正阶段默认允许对剩余时域的内部资源分配和后续计划进行更新，而未显式引入市场偏差惩罚项；若市场规则对投标修正幅度或偏差结算有明确约束，则可在滚动目标函数中加入相应惩罚项或修正成本项。
+
+\subsection{用户侧资源与不确定信号建模}
+\label{subsec:vpp_admm_model_user_signal}
+
+\subsubsection{用户侧资源建模对象与聚合方式}
+\label{subsubsec:vpp_admm_model_user_signal_resource}
+
+在本文的分布式结构中，用户侧资源主要指电动汽车。与聚合器直接控制的光伏和站级储能不同，电动汽车天然分散于不同用户手中，具有独立的到达时刻、离开时刻、初始电量和可接受充放电范围，因此更适合以用户代理的形式参与优化。从建模角度看，既可以将单辆电动汽车视为独立用户，也可以将具有相同或相近出行模式的车辆聚合为用户组。后者能够在较好保留物理约束特征的同时显著降低变量规模，因此更符合大规模算例的实现需求。
+
+如果采用用户组建模，则组内资源共享同一组时间可用特征和边界参数，功率边界与能量边界按聚合规模进行比例放大。这种处理方式并非忽略个体差异，而是将具有相似行为模式的个体映射为等效聚合用户，从而降低问题维数。需要强调的是，本文在算法层面对用户侧采取分布式建模，并不意味着所有资源都必须采用相同粒度处理；资源划分应服从所有权归属、信息可得性和隐私需求，而非机械地按资源类型逐一拆分。
+
+在参数获取方面，本文默认日前阶段能够获得用户可用性参数的预测值或统计估计值，例如电动汽车到达时刻、离开时刻、初始荷电状态以及可接受充放电范围等。换言之，用户组建模所依赖的时间可用特征属于预测输入而非完美先验信息。由预测误差引起的偏差并未在日前模型中单独建模，而是主要通过滚动修正阶段的条件优化进行吸收。因此，本章的建模重点在于阐明调度框架与分布式求解结构，而非展开用户行为预测模型本身。
+
+基于上述考虑，本文将光伏和站级储能保留在聚合器中心块中统一优化，而将电动汽车保留在用户侧块中分布式求解。这种混合结构兼顾了两方面需求：一方面，聚合器能够直接对自身可控资源进行优化；另一方面，电动汽车用户无需向聚合器完整暴露内部参数与局部状态轨迹，只需在协调过程中交换必要的决策信息。
+
+\subsubsection{用户侧功率与能量约束模型}
+\label{subsubsec:vpp_admm_model_user_signal_constraints}
+
+对于任意用户侧资源 $i \in \mathcal{N}^{\mathrm{EV}}$，其在时段 $t$、场景 $s$ 下的净功率可以统一表示为
+\begin{equation}
+p_{i,t,s}^{\mathrm{net}} = p_{i,t} + r_{i,t} d_s.
+\end{equation}
+其中，$p_{i,t}$ 反映用户在无调频激活情况下的基础充放电计划，$r_{i,t}$ 则反映为调频服务预留的可调节容量。当调频激活信号变化时，用户净功率围绕基础计划上下浮动，因此该式是连接“市场调度意图”和“用户实际响应行为”的核心关系。
+
+为了兼顾物理约束与符号表达的清晰性，本文将净功率进一步分解为充电功率和放电功率之差：
+\begin{equation}
+p_{i,t,s}^{\mathrm{net}} = p_{i,t,s}^{\mathrm{dis}} - p_{i,t,s}^{\mathrm{ch}}.
+\end{equation}
+这种分解方式使所有功率边界、退化成本和能量更新均可通过非负变量直接描述，也便于在不同场景下计算期望退化成本。若某时段内用户不可接入，则通过令其充放电功率上下界同步收缩为零即可体现不可用性，因此时间可用特征已被统一嵌入功率约束矩阵之中。
+
+用户侧资源的能量状态演化由以下关系给出：
+\begin{equation}
+e_{i,t+1} = e_{i,t}
++ \eta_i^{\mathrm{ch}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{ch}} \Delta t
+- \eta_i^{\mathrm{dis}} \sum_{s \in \mathcal{S}} \pi_{t,s} p_{i,t,s}^{\mathrm{dis}} \Delta t.
+\end{equation}
+该式表明，用户能量状态由当前能量水平、场景加权后的充电行为和放电行为共同决定。式中 $\eta_i^{\mathrm{ch}}$ 和 $\eta_i^{\mathrm{dis}}$ 表示与离散能量状态方程一致的等效能量折算系数，其作用是将功率量转换为状态量变化。需要说明的是，本文沿用程序实现中的等效参数化方式，将充电项和放电项统一写成乘法形式；若采用“放电功率除以效率”的另一种常见物理口径，也可通过对放电效率参数重新定义得到等价表达。为了保证资源在整个运行过程中保持安全可控，能量状态还需满足
+\begin{equation}
+\underline e_{i,t} \le e_{i,t} \le \overline e_{i,t}.
+\end{equation}
+这一约束用于刻画电池可接受的安全工作范围，防止过充或过放。
+
+此外，用户侧资源还应满足功率边界和响应能力边界。前者约束在任意场景下的最大充电功率与最大放电功率，后者约束在调频信号达到极端值时资源仍能维持能量可行性。前者决定瞬时可执行性，后者决定持续可执行性，因此二者分别从瞬时能力和持续能力两个层面共同约束用户侧资源的响应行为。
+
+\subsubsection{调频信号不确定性建模}
+\label{subsubsec:vpp_admm_model_user_signal_uncertainty}
+
+虚拟电厂参与调频市场时，最主要的不确定性来源并非资源参数本身，而是系统实际下发的调频信号。对于聚合器而言，在日前优化时无法提前获知各时刻的真实激活值，只能基于历史数据、统计特征或预测结果估计其可能分布。因此，若直接采用单一确定信号进行建模，所得优化结果往往难以适应真实运行环境。
+
+为兼顾随机性表达和优化可计算性，本文采用离散场景法刻画调频信号不确定性。设 $\mathcal{S}$ 为离散场景集合，$d_s$ 为场景 $s$ 的调频信号值，$\pi_{t,s}$ 为时段 $t$ 下场景 $s$ 发生的概率，则对于每一个离散时段，调频信号的不确定性均可由场景值与场景概率共同描述。这样一来，原本连续随机的激活过程被映射为有限维的场景集合，使得收益、成本和能量状态均可通过概率加权方式进入优化模型。
+
+需要区分的是，场景信号 $d_s$ 与实时信号 $\delta_{\tau}$ 在模型中的作用并不相同。场景信号用于优化阶段，用以刻画未来不确定需求的统计分布；实时信号用于执行阶段，用以驱动资源按高时间分辨率响应市场或系统调节请求。只有明确区分这两类信号，才能合理解释为何日前模型采用概率加权期望形式，而实际执行仍表现为单条真实轨迹。
+
+\subsubsection{从不确定信号到期望收益的映射关系}
+\label{subsubsec:vpp_admm_model_user_signal_expectation}
+
+从模型推导角度看，不确定信号对收益和成本的影响遵循“场景信号影响净功率，净功率影响充放电，充放电影响收益和退化成本”的逐层传递关系。首先，场景信号 $d_s$ 通过 $p_{i,t} + r_{i,t} d_s$ 决定资源在场景 $s$ 下的净功率需求；随后，净功率被分解为充电功率与放电功率，从而进一步影响能量状态更新和退化成本计算；最终，在所有场景上按照概率加权，得到期望能量收益、期望容量收益和期望退化费用。
+
+采用期望形式建模的根本原因在于，日前优化所面对的是尚未发生的随机过程。若仅针对某一单一场景进行优化，则所得结果可能仅在该场景下最优，而在其他更常见场景下表现较差。通过引入场景概率，模型能够在收益与风险之间形成更平衡的调度策略。需要说明的是，期望形式并不意味着忽略极端情况；相反，它与响应能力约束共同作用，前者负责统计意义上的收益最优，后者负责极端激活下的可行性保障。
+
+之所以在本章首先采用概率加权期望模型，而未直接引入机会约束或条件风险价值（Conditional Value at Risk, CVaR）等风险度量，主要基于两方面考虑：其一，本文的目标是先建立可与现有集中式模型和 ADMM 分解结构相衔接的基准框架；其二，期望模型在保持凸性和可分解性方面更为直接，便于分析两阶段调度与分布式协调之间的关系。与此同时，本文并未忽略尾部风险，而是通过极端场景响应能力约束和滚动修正机制对其进行补偿。若后续需要更强的风险规避能力，可在本框架上进一步引入机会约束或 CVaR 项。
+
+因此，本章所有收益和成本项均建立在“场景可离散、概率可估计”的前提下。对于实验部分而言，这意味着算例不仅需要给出市场价格与资源参数，还需要给出调频信号场景及其概率分布。只有在该前提成立时，本文提出的两阶段优化模型与后续分布式算法才具有明确的物理和统计意义。
+
+\subsection{多主体去中心化分布式优化调度算法}
+\label{subsec:vpp_admm_model_algorithm}
+
+\subsubsection{集中式模型的耦合关系分析}
+\label{subsubsec:vpp_admm_model_algorithm_coupling}
+
+虽然日前模型可以直接写成统一的集中式优化问题，但从结构上看，并非所有变量都必须由聚合器集中处理。对于每个用户侧资源而言，其基础功率计划、调频容量分配、充放电行为和能量状态演化主要受本地约束控制，因此这些变量天然具有局部属性。真正导致不同用户之间产生耦合的，是虚拟电厂对外提交的总投标必须由各局部决策在系统层面汇总形成这一事实。
+
+因此，集中式问题的核心耦合约束并不在于用户内部的能量状态方程，而在于聚合关系本身，即 $P_t^{\mathrm{bid}}$ 和 $R_t^{\mathrm{bid}}$ 必须由各类资源的局部决策在时段层面汇总得到。正是由于耦合主要体现为这类“总量一致性”约束，原问题才适合采用 ADMM 进行分解，即将局部约束保留在用户侧，而由主站在协调层面处理耦合关系。
+
+需要说明的是，存在总量平衡约束并不必然意味着只能采用分布式求解。理论上，Benders 分解、对偶分解以及拉格朗日松弛等方法均可用于处理含有耦合约束的优化问题。本文选择 ADMM，主要是因为原问题中的耦合项表现为线性一致性约束，且用户侧局部可行域较为复杂、维度较高，ADMM 更便于在保持局部约束原貌的同时实现并行求解，并通过增广拉格朗日项改善原始可行性收敛表现。相较之下，Benders 分解更适合处理主问题与从问题层次分明的情形，而纯对偶分解在一致性恢复和收敛稳定性方面通常更依赖步长调节。
+
+为更清晰地揭示可分解结构，记中心块决策为 $x_0$，用户块决策为 $x_i=(p_i,r_i)$，并定义用户平均协调变量
+\begin{equation}
+\bar p_t = \frac{1}{|\mathcal{N}^{\mathrm{EV}}|} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} p_{i,t}, \qquad
+\bar r_t = \frac{1}{|\mathcal{N}^{\mathrm{EV}}|} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} r_{i,t}.
+\end{equation}
+则聚合投标可重写为
+\begin{equation}
+P_t^{\mathrm{bid}} = \sum_{j \in \mathcal{C}} p_{j,t} + |\mathcal{N}^{\mathrm{EV}}| \bar p_t,
+\qquad
+R_t^{\mathrm{bid}} = \sum_{j \in \mathcal{C}} r_{j,t} + |\mathcal{N}^{\mathrm{EV}}| \bar r_t.
+\end{equation}
+由此可见，耦合关系可以等价转化为“用户局部决策与平均协调变量之间的一致性关系”，这正是后续 ADMM 建模的直接基础。
+
+\subsubsection{中心块与用户块的分解策略}
+\label{subsubsec:vpp_admm_model_algorithm_split}
+
+本文采用“聚合器中心块 + 用户侧分布式块”的混合分解策略。具体而言，聚合器中心块包含光伏与站级储能，其特点是资源归属于聚合器、信息完全可得且局部约束便于集中处理；用户侧分布式块则对应电动汽车用户或用户组，其特点是数量较多、分布较广，且状态与约束信息具有隐私属性。上述分解边界同时遵循物理归属和信息归属两类原则，因此较“将所有资源一律分布式”或“将所有资源一律集中式”的处理方式更符合工程实际。
+
+在这一分解结构下，聚合器侧负责两类任务：其一，处理自身可控资源的局部优化；其二，作为协调者恢复总投标并维持全局一致性。用户侧则仅负责在给定协调信号下求解本地优化问题，并向主站上报必要的局部决策结果或其统计量。由此，算法既保留了市场层面的统一协调能力，又避免了用户本地模型被完整暴露给聚合器。
+
+\subsubsection{用户子问题建模}
+\label{subsubsec:vpp_admm_model_algorithm_user}
+
+记用户 $i \in \mathcal{N}^{\mathrm{EV}}$ 的局部决策为
+\begin{equation}
+x_i = \left(p_i, r_i, p_i^{\mathrm{dis}}, p_i^{\mathrm{ch}}, e_i\right),
+\end{equation}
+其中 $p_i$ 和 $r_i$ 分别表示该用户在整个优化时域上的基础功率向量和调频容量向量，$p_i^{\mathrm{dis}}$、$p_i^{\mathrm{ch}}$ 和 $e_i$ 分别表示对应场景下的放电功率、充电功率和能量状态轨迹。为了将局部问题与全局协调问题解耦，本文引入一致性变量 $\bar p$ 和 $\bar r$，分别表示主站在每轮迭代中给出的基础功率协调量和调频容量协调量。再引入缩放对偶变量 $u_i^p$ 和 $u_i^r$，则用户子问题可写为
+\begin{equation}
+\min_{x_i \in \mathcal{X}_i}
+f_i(x_i)
++ \frac{\rho_p}{2} \|p_i - \bar p + u_i^p\|_2^2
++ \frac{\rho_r}{2} \|r_i - \bar r + u_i^r\|_2^2,
+\end{equation}
+其中，$\mathcal{X}_i$ 表示用户 $i$ 的局部可行域，包含功率边界、能量边界、状态演化和响应能力等全部本地约束；$f_i(x_i)$ 表示用户局部退化成本或等价局部代价项；$\rho_p$ 和 $\rho_r$ 为 ADMM 惩罚参数。该目标函数中的前一部分反映资源自身运行代价，后一部分则反映用户决策与全局协调信号之间的一致性偏差。
+
+从信息交互角度看，用户子问题的优势在于，所有局部物理约束均保留在本地求解，主站无需获得用户完整的功率边界矩阵、能量上下界或状态轨迹。用户在每轮迭代后仅需上报基础功率决策、调频容量决策或由此构成的中间量，即可参与全局协调。因此，分布式结构降低了主站对用户内部信息的依赖程度。
+
+为了使用户子问题与日前模型和滚动模型保持一致，可将其形式化写为
+\begin{subequations}
+\label{prob:vpp_admm_user}
+\begin{align}
+x_i^{k+1} = \arg\min_{x_i \in \mathcal{X}_i}
+\quad & f_i(x_i)
++ \frac{\rho_p}{2} \|p_i - \bar p^k + u_i^{p,k}\|_2^2
++ \frac{\rho_r}{2} \|r_i - \bar r^k + u_i^{r,k}\|_2^2 \label{prob:vpp_admm_user_obj}
+\end{align}
+\end{subequations}
+其中，$\mathcal{X}_i$ 表示由式~\eqref{prob:vpp_dayahead_formal_balance}--式~\eqref{prob:vpp_dayahead_formal_resp_up} 及其滚动版本诱导出的用户局部可行域，$f_i(x_i)$ 表示用户在当前优化时域上的期望退化成本。需要强调的是，虽然一致性协调只直接作用于 $p_i$ 和 $r_i$，但场景变量 $p_i^{\mathrm{dis}}$、$p_i^{\mathrm{ch}}$ 以及状态变量 $e_i$ 仍作为局部变量与其联合优化，并通过局部可行域 $\mathcal{X}_i$ 与基础功率、调频容量保持耦合。式~\eqref{prob:vpp_admm_user_obj} 中的二次惩罚项并不改变用户物理约束，而是驱动局部决策向全局协调变量逐步收敛。
+
+\subsubsection{主站协调问题建模}
+\label{subsubsec:vpp_admm_model_algorithm_master}
+
+主站协调问题的职责并非重复求解所有用户局部模型，而是在聚合器中心块资源与用户上报结果的基础上恢复市场层净收益，并更新全局一致性变量。设中心块决策为 $x_0$，用户上报后的统计量定义为
+\begin{equation}
+\bar a^p = \frac{1}{|\mathcal{N}^{\mathrm{EV}}|} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} (p_i + u_i^p),
+\qquad
+\bar a^r = \frac{1}{|\mathcal{N}^{\mathrm{EV}}|} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} (r_i + u_i^r),
+\end{equation}
+则主站协调问题可写为
+\begin{equation}
+\max_{x_0, \bar p, \bar r}
+g(x_0, \bar p, \bar r)
+- \frac{\rho_p |\mathcal{N}^{\mathrm{EV}}|}{2} \|\bar p - \bar a^p\|_2^2
+- \frac{\rho_r |\mathcal{N}^{\mathrm{EV}}|}{2} \|\bar r - \bar a^r\|_2^2,
+\end{equation}
+其中，$g(x_0, \bar p, \bar r)$ 表示由中心块资源和用户平均协调量共同构成的聚合器收益函数。该问题负责在市场收益最大化与一致性协调之间实现平衡。
+
+需要强调的是，主站侧仅需处理两类信息：一类是聚合器可直接获得的中心块资源参数和状态，另一类是用户侧上传的决策结果或统计量。由于用户本地约束已经在子问题中处理完毕，主站无须显式重建每个用户的能量约束矩阵，也无须保存所有用户的完整内部状态。这样既降低了集中计算负担，也减少了敏感信息在系统中的流动范围。
+
+对应地，主站协调问题可以写成
+\begin{subequations}
+\label{prob:vpp_admm_master}
+\begin{align}
+(x_0^{k+1}, \bar p^{k+1}, \bar r^{k+1}) = \arg\max_{x_0 \in \mathcal{X}_0,\, \bar p,\, \bar r}
+\quad & g(x_0, \bar p, \bar r)
+- \frac{\rho_p}{2} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} \|\bar p - p_i^{k+1} - u_i^{p,k}\|_2^2 \\
+& - \frac{\rho_r}{2} \sum_{i \in \mathcal{N}^{\mathrm{EV}}} \|\bar r - r_i^{k+1} - u_i^{r,k}\|_2^2, \label{prob:vpp_admm_master_obj}
+\end{align}
+\end{subequations}
+其中，$\mathcal{X}_0$ 表示中心块资源的局部可行域，$g(x_0,\bar p,\bar r)$ 表示由中心块资源决策和用户平均协调量共同决定的聚合器期望收益。该问题本质上完成两项任务：其一，对中心块资源进行局部优化；其二，在用户上报结果基础上更新平均协调变量，使其尽可能兼顾市场收益与全局一致性。
+
+\subsubsection{ADMM迭代更新与收敛判据}
+\label{subsubsec:vpp_admm_model_algorithm_update}
+
+在算法执行过程中，每轮 ADMM 迭代均遵循“用户更新—主站更新—乘子更新”的顺序。在第 $k+1$ 轮迭代中，首先在给定 $\bar p^{k}$、$\bar r^{k}$、$u_i^{p,k}$ 和 $u_i^{r,k}$ 的条件下，各用户并行求解本地子问题，得到 $p_i^{k+1}$ 和 $r_i^{k+1}$。随后，主站根据所有用户上报结果与中心块状态求解协调问题，得到新的 $\bar p^{k+1}$ 和 $\bar r^{k+1}$。最后，对偶变量按照
+\begin{equation}
+u_i^{p,k+1} = u_i^{p,k} + p_i^{k+1} - \bar p^{k+1},
+\qquad
+u_i^{r,k+1} = u_i^{r,k} + r_i^{k+1} - \bar r^{k+1}
+\end{equation}
+进行更新，以推动局部决策逐步向一致性变量收敛。
+
+为判断算法是否收敛，本文采用原始残差和对偶残差作为停止准则。原始残差用于刻画局部决策与一致性变量之间的偏差，对偶残差用于刻画相邻两轮协调变量变化所反映的稳定性。只有当两类残差同时小于给定阈值时，才能认为当前迭代结果在一致性与稳定性两个层面均达到要求。该判据不仅具有明确的数学含义，也与工程实现中“协调过程是否趋于稳定”的判断相对应。
+
+从求解流程上看，日前分布式优化与滚动分布式修正共享同一 ADMM 迭代框架，二者的主要差异仅体现在优化时域、初始状态以及当前时段剩余时长的处理方式上。因此，在工程实现层面，可以将日前求解器与滚动求解器视为同一套分布式求解引擎在不同时间窗口下的实例化应用。为便于读者把握整体求解逻辑，本文进一步给出相应的算法伪代码。
+
+若论文导言区尚未引入伪代码宏包，建议增加 \verb|algorithm| 与 \verb|algpseudocode| 两个宏包。基于前述分解结构，本文所采用的 ADMM 迭代流程如算法~\ref{alg:vpp_admm_framework} 所示。
+
+\begin{algorithm}[htbp]
+\caption{虚拟电厂两阶段分布式调度的 ADMM 求解流程}
+\label{alg:vpp_admm_framework}
+\begin{algorithmic}[1]
+\Require 中心块可行域 $\mathcal{X}_0$，用户局部可行域 $\mathcal{X}_i$，惩罚参数 $\rho_p,\rho_r$，收敛阈值 $\varepsilon_{\mathrm{pri}},\varepsilon_{\mathrm{dual}}$，最大迭代次数 $K_{\max}$
+\Ensure 协调后的聚合投标 $P^{\mathrm{bid}},R^{\mathrm{bid}}$，中心块决策 $x_0$，用户局部决策 $x_i$
+\State 根据日前阶段或滚动阶段的当前信息初始化 $\bar p^0,\bar r^0,u_i^{p,0},u_i^{r,0}$
+\For{$k=0,1,\ldots,K_{\max}-1$}
+	\ForAll{$i \in \mathcal{N}^{\mathrm{EV}}$ \textbf{in parallel}}
+		\State 用户 $i$ 求解局部子问题
+		\Statex \hspace{1.5em}$x_i^{k+1}=\arg\min_{x_i\in\mathcal{X}_i} f_i(x_i)+\frac{\rho_p}{2}\lVert p_i-\bar p^k+u_i^{p,k}\rVert_2^2+\frac{\rho_r}{2}\lVert r_i-\bar r^k+u_i^{r,k}\rVert_2^2$
+		\State 用户向主站上报 $p_i^{k+1},r_i^{k+1}$ 或相应统计量
+	\EndFor
+	\State 主站汇总所有用户上报量并构造协调统计量
+	\Statex \hspace{1.5em}$\bar a^{p,k+1}=\frac{1}{|\mathcal{N}^{\mathrm{EV}}|}\sum_{i\in\mathcal{N}^{\mathrm{EV}}}(p_i^{k+1}+u_i^{p,k})$
+	\Statex \hspace{1.5em}$\bar a^{r,k+1}=\frac{1}{|\mathcal{N}^{\mathrm{EV}}|}\sum_{i\in\mathcal{N}^{\mathrm{EV}}}(r_i^{k+1}+u_i^{r,k})$
+	\State 主站求解中心块协调问题
+	\Statex \hspace{1.5em}$(x_0^{k+1},\bar p^{k+1},\bar r^{k+1})=\arg\max_{x_0\in\mathcal{X}_0,\bar p,\bar r} g(x_0,\bar p,\bar r)$
+	\Statex \hspace{1.5em}$\qquad\qquad\qquad\qquad\qquad -\frac{\rho_p}{2}\sum_{i\in\mathcal{N}^{\mathrm{EV}}}\lVert \bar p-p_i^{k+1}-u_i^{p,k}\rVert_2^2$
+	\Statex \hspace{1.5em}$\qquad\qquad\qquad\qquad\qquad -\frac{\rho_r}{2}\sum_{i\in\mathcal{N}^{\mathrm{EV}}}\lVert \bar r-r_i^{k+1}-u_i^{r,k}\rVert_2^2$
+	\ForAll{$i \in \mathcal{N}^{\mathrm{EV}}$}
+		\State 更新对偶变量 $u_i^{p,k+1}=u_i^{p,k}+p_i^{k+1}-\bar p^{k+1}$
+		\State 更新对偶变量 $u_i^{r,k+1}=u_i^{r,k}+r_i^{k+1}-\bar r^{k+1}$
+	\EndFor
+	\State 计算原始残差 $r_{\mathrm{pri}}^{k+1}$ 和对偶残差 $r_{\mathrm{dual}}^{k+1}$
+	\If{$r_{\mathrm{pri}}^{k+1} \le \varepsilon_{\mathrm{pri}}$ \textbf{and} $r_{\mathrm{dual}}^{k+1} \le \varepsilon_{\mathrm{dual}}$}
+		\State \textbf{break}
+	\EndIf
+\EndFor
+\State 根据中心块结果与用户局部结果恢复聚合投标 $P^{\mathrm{bid}},R^{\mathrm{bid}}$
+\end{algorithmic}
+\end{algorithm}
+
+更进一步地，本文采用如下残差定义判断 ADMM 的收敛状态：
+\begin{equation}
+r_{\mathrm{pri}}^{k+1} = \left(
+\sum_{i \in \mathcal{N}^{\mathrm{EV}}} \|p_i^{k+1} - \bar p^{k+1}\|_2^2
++ \sum_{i \in \mathcal{N}^{\mathrm{EV}}} \|r_i^{k+1} - \bar r^{k+1}\|_2^2
+\right)^{1/2},
+\end{equation}
+\begin{equation}
+r_{\mathrm{dual}}^{k+1} = \left(
+|\mathcal{N}^{\mathrm{EV}}| \rho_p^2 \|\bar p^{k+1} - \bar p^k\|_2^2
++ |\mathcal{N}^{\mathrm{EV}}| \rho_r^2 \|\bar r^{k+1} - \bar r^k\|_2^2
+\right)^{1/2}.
+\end{equation}
+当
+\begin{equation}
+r_{\mathrm{pri}}^{k+1} \le \varepsilon_{\mathrm{pri}}, \qquad r_{\mathrm{dual}}^{k+1} \le \varepsilon_{\mathrm{dual}}
+\end{equation}
+同时成立时，认为算法达到停止条件。上述判据分别对应“一致性误差足够小”和“协调变量变化足够平稳”两个层面的要求，因此能够较好反映分布式算法在数学意义和工程意义上的双重收敛状态。
+
+\subsubsection{隐私保护机理与工程实现说明}
+\label{subsubsec:vpp_admm_model_algorithm_privacy}
+
+本文所提分布式调度框架在工程层面具有明确的隐私保护意义。具体而言，用户的局部约束矩阵、能量状态轨迹、充放电上下界以及内部参数无须完整上传至主站，而是在本地求解器中直接处理。主站所获得的是用户决策结果或其统计量，而非完整的本地模型。因此，与集中式优化相比，用户侧敏感信息的暴露范围显著缩小。
+
+但需要指出的是，分布式求解并不等同于严格意义上的完全隐私保护。若主站在每轮迭代中仍能观察到每个用户的单独上报结果，则仍可能从长期数据中推断部分用户行为特征。因此，本文更准确的定位应是“基于分布式求解的部分隐私保护框架”。若后续研究需要进一步提升隐私等级，可在此基础上引入安全聚合、加密计算或差分隐私等机制。
+
+从工程实现角度看，本文框架还具有良好的模块化特征。用户侧负责本地求解，主站负责中心资源优化与一致性协调，日前优化与滚动优化共享同一信息交互模式。这意味着当资源数量增加或系统部署规模扩大时，算法框架本身无须推翻重构，只需在通信与计算资源配置上进行适配即可。
+
+与此同时，本文对通信机制作了同步且可靠的理想化假设，即默认每一轮 ADMM 迭代中各用户能够按时完成求解并向主站返回结果，主站据此统一完成协调更新。该假设与当前仿真实现一致，但尚未显式考虑通信延迟、数据丢包或异步更新情形。若面向更复杂的工程场景，可进一步研究异步 ADMM 或含通信不确定性的鲁棒协调机制。
+
+对于隐私保护程度，本文仅从信息暴露边界的角度给出定性说明，即用户无需上报完整局部约束矩阵与状态轨迹，但尚未建立严格的隐私泄露度量指标，也未量化主站通过迭代序列反推用户参数的能力。因此，本章将该方法界定为“部分隐私保护”的分布式框架，而非具备可证明隐私保证的安全计算框架。
+
+\section{算例分析}
+\label{sec:vpp_admm_case}
+
+\subsection{参数设置}
+\label{subsec:vpp_admm_case_params}
+
+算例分析部分的目标并非简单展示程序可以运行，而是回答以下几个核心问题：所提模型能否形成合理的市场投标与资源调度结果，所提算法能否在分布式结构下稳定收敛，所提方案在不确定环境下是否具有可靠性，以及当用户规模扩大时该方案是否仍具备工程可实施性。基于上述目标，实验部分需要从数据来源、参数设置、评价指标和对比对象四个层面形成统一框架。
+
+在参数设置方面，应明确给出市场价格数据、调频信号场景及其概率、光伏与储能参数、电动汽车参数、调度时域、滚动修正间隔、实时控制间隔以及求解器配置。对于 ADMM 算法，还应给出惩罚参数、最大迭代次数和收敛阈值。这样做的目的在于保证后续实验具有可重复性，同时便于解释不同实验之间的差异究竟来自模型结构还是参数变化。
+
+在评价指标方面，建议至少包含四类指标：第一类为经济性指标，包括总净收益、能量收益、容量收益和电池退化费用；第二类为算法性指标，包括原始残差、对偶残差和迭代次数；第三类为计算性指标，包括用户平均计算时间和主站平均计算时间；第四类为执行性指标，包括状态越界情况、滚动修正幅度和实时跟踪效果。通过这四类指标，可以从收益、收敛、复杂度和执行可行性四个维度对所提方案进行较为完整的评价。
+
+\subsection{基本优化调度结果分析}
+\label{subsec:vpp_admm_case_basic}
+
+基本优化调度结果分析的任务，在于验证所提两阶段模型能否在给定市场参数和信号场景下形成合理的投标与调度结果。该部分宜首先展示日前阶段得到的基础功率投标曲线与调频容量投标曲线，再展示滚动修正后未来时段投标的变化情况，最后给出实时执行阶段的功率分配与状态演化结果。通过这一展示顺序，读者能够直观理解“计划—修正—执行”三层结构的贯通关系。
+
+在结果解释方面，应重点分析总净收益的来源构成，即能量收益、容量收益与电池退化费用之间的相互关系。例如，当容量收益显著提升时，是否伴随着更高的充放电强度和退化成本；当滚动修正频繁发生时，是否有效减少了状态越界或收益波动。如此可避免实验分析流于“仅有图形展示而缺乏机制解释”的表层叙述，进而更充分地体现模型中的核心权衡关系。
+
+因此，本节结论应回答一个最基本而又关键的问题：所提模型是否在经济上具有合理性、在物理上具有可执行性、在动态上能够形成连贯的调度闭环。这一结论是后续可靠性分析与可扩展性分析成立的前提。
+
+\subsection{优化调度策略的可靠性分析}
+\label{subsec:vpp_admm_case_reliability}
+
+可靠性分析的核心问题在于：当实际调频信号偏离统计期望、资源状态出现累积偏差或执行过程中出现局部扰动时，所提策略是否仍能维持调度可行性与收益稳定性。为回答这一问题，本节应重点考察状态越界情况、滚动修正前后收益波动以及不同场景下的调度轨迹差异。若模型能够在这些条件下持续保持可执行性，则说明其不仅在理想场景下有效，而且具备应对实际不确定性的适应能力。
+
+在实验展示上，建议联合分析能量状态轨迹、原始残差与对偶残差曲线，以及滚动修正前后的投标变化。这样既能说明模型本身的约束设计是否合理，也能说明滚动修正机制是否真正起到了“在偏差出现后重新拉回可行域”的作用。最终，本节应明确指出可靠性究竟来源于何处，是来自日前阶段设置的响应能力约束，还是来自运行过程中的动态修正机制，抑或二者的共同作用。
+
+\subsection{优化调度策略的可扩展性分析}
+\label{subsec:vpp_admm_case_scalability}
+
+可扩展性分析关注的并非收益本身，而是随着用户规模不断扩大，所提分布式方案是否仍能在计算层面保持可实施性。具体而言，本节应考察用户数量增加后，ADMM 的迭代次数是否显著增长，单个用户平均求解时间是否保持稳定，主站平均协调时间是否出现不可接受的上升，以及整体收益是否因聚合规模变化而明显恶化。
+
+在指标设计上，用户平均计算时间和主站平均计算时间应作为本节的核心指标。前者刻画局部子问题的计算负担，后者刻画聚合器协调层的计算压力。若用户数量增加时，单个用户计算时间基本保持稳定，而主站时间增长较为平缓，则说明所提分布式结构具备较好的规模扩展潜力；反之，则需要进一步分析协调层是否成为新的计算瓶颈。
+
+本节最终应给出一个工程上可解释的判断，即在何种用户规模范围内，分布式方案相对于集中式方案具备更现实的部署价值；又在何种规模下，仍需要进一步引入并行计算、问题参数化复用或更高效的通信机制。
+
+\subsection{不同调度模型间的对比分析}
+\label{subsec:vpp_admm_case_comparison}
+
+对比分析的目的，在于回答“分布式方案相较于集中式方案究竟带来了何种差异”这一核心问题。该问题不能仅通过收益大小加以判断，因为分布式方案的价值不仅体现在经济性方面，还体现在隐私保护、模型解耦、可扩展性和工程部署便利性等方面。因此，本节应从收益水平、可行性、收敛表现、计算时间以及信息暴露程度等多个维度进行综合比较。
+
+若实验结果表明分布式方案在收益上略有损失，但在隐私保护和大规模扩展能力上具有优势，则应明确指出这种差异来源于分解协调过程引入的迭代成本和一致性逼近误差，而不能简单归结为“算法性能较差”。反之，若分布式方案在某些场景下的收益接近甚至优于集中式方案，也应进一步解释其原因是否来自滚动修正机制、局部约束处理更为灵活，或场景建模方式的差异。
+
+本节结论应保持客观严谨。论文不应预设“分布式一定优于集中式”，而应在对比中明确指出：分布式方案更适用于何种资源结构、何种隐私要求和何种规模条件；集中式方案又在哪些场景下仍具有更高的求解效率或更直接的实现优势。
+
+\section{本章小结}
+\label{sec:vpp_admm_summary}
+
+本章围绕虚拟电厂参与能量市场与调频市场的两阶段调度问题，构建了统一的收益表达、用户侧资源模型和不确定信号场景模型，并在此基础上建立了包含日前优化与滚动修正的动态调度框架。针对集中式模型对用户内部信息依赖较强的问题，本文进一步分析了原问题中的耦合结构，并采用 ADMM 将聚合器中心块与用户侧资源块解耦，形成了兼顾收益、可行性与部分隐私保护需求的多主体分布式求解方法。
+
+从方法论角度看，本章的核心内容可以概括为三个层面：一是统一了虚拟电厂两阶段调度中的符号、信号和收益口径，使模型表达具有自洽性与可解释性；二是将用户侧资源约束、不确定信号场景与市场收益映射关系纳入统一优化框架；三是给出了适用于日前投标和滚动修正的 ADMM 去中心化求解结构。围绕上述内容，算例分析部分进一步从基本效果、可靠性、可扩展性和模型对比等维度给出了实验设计框架。
+
+需要指出的是，本章提出的分布式方案主要实现了工程层面的部分隐私保护与计算解耦，尚未引入更强的安全聚合或加密计算机制。因此，在后续研究中，仍可围绕更高等级的隐私保护、并行计算实现以及更复杂市场场景下的扩展建模继续深入。

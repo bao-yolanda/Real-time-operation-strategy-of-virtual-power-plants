@@ -1,10 +1,8 @@
-from fileinput import filename
 from typing import Any, Literal
 import numpy as np
 import os
 import sys
 import argparse
-import pandas as pd
 from datetime import datetime
 
 # 获取项目根目录（Real-time-operation-strategy-of-virtual-power-plants-main）
@@ -14,9 +12,9 @@ if project_root not in sys.path:
 
 from exp_with_error.max_profit_1_admm import max_profit_1_admm
 from exp_with_error.max_profit_t_admm import max_profit_t_admm
-from myexp.fast_control_implement import fast_control_implement
+from exp_with_error.fast_control_implement import fast_control_implement
 from myexp.data_process.prepare_main import prepare_main_data
-from myexp.mat_utils import as_1d, as_2d, load_mat
+from exp_with_error.mat_utils import as_1d, as_2d, load_mat
 
 def _normalize_param(param: Any) -> Any:
     param.price_e = as_1d(param.price_e)
@@ -43,6 +41,12 @@ def _normalize_param_std(param_std: Any) -> Any:
     param_std.pr_ch = as_1d(param_std.pr_ch)
     param_std.wOmiga = as_2d(param_std.wOmiga)
     return param_std
+
+
+def _safe_percentage_change(current: float, baseline: float) -> float:
+    if abs(baseline) < 1e-9:
+        return 0.0
+    return (current - baseline) / baseline * 100.0
 
 
 def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
@@ -242,8 +246,11 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
     print(f"  - 电池退化费用: {result['actualBatteryDeg'].sum():.4f} USD")
 
     # 利润变化
-    profit_diff = result['actualProfit'].sum() - result['Profit_day'].sum()
-    print(f"\n利润变化: {profit_diff:+.4f} USD ({profit_diff/result['Profit_day'].sum()*100:+.2f}%)")
+    day_profit_total = float(result['Profit_day'].sum())
+    actual_profit_total = float(result['actualProfit'].sum())
+    profit_diff = actual_profit_total - day_profit_total
+    profit_change_pct = _safe_percentage_change(actual_profit_total, day_profit_total)
+    print(f"\n利润变化: {profit_diff:+.4f} USD ({profit_change_pct:+.2f}%)")
 
     # ========== 保存结果为CSV和Excel格式 ==========
     if save_results:
@@ -381,10 +388,10 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
                     'EV数量',
                 ],
                 '数值': [
-                    result['Profit_day'].sum(),
-                    result['actualProfit'].sum(),
-                    result['actualProfit'].sum() - result['Profit_day'].sum(),
-                    (result['actualProfit'].sum() - result['Profit_day'].sum()) / result['Profit_day'].sum() * 100,
+                    day_profit_total,
+                    actual_profit_total,
+                    profit_diff,
+                    profit_change_pct,
                     result['EnergyRevenue_day'].sum(),
                     result['CapacityRevenue_day'].sum(),
                     result['BatteryDeg_day'].sum(),

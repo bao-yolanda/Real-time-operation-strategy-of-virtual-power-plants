@@ -1,0 +1,1143 @@
+   IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025                                                                                  3873
+
+
+
+
+                  Renewable Energy Following Strategy via
+                   Quantified Aggregated Heterogeneous
+                        Electric Vehicle Flexibility
+           Shuying Lai , Member, IEEE, Zhao Yang Dong , Fellow, IEEE, Hongming Yang , Member, IEEE,
+                   Yuechuan Tao , Member, IEEE, Christine Yip , Jing Qiu , Senior Member, IEEE,
+                                     and Junhua Zhao , Senior Member, IEEE
+
+
+
+      Abstract—The rapid expansion of renewable energy (RE)                         set as an operating envelope. Two RE following evaluation
+   generation brings environmental and economic benefits. However,                  methods, namely, Euclidean norm and cosine similarity, are used
+   the mismatch of the RE generation pattern and load profile                       to assess the RE following effectiveness. Finally, we propose a
+   introduces the imbalance between energy supply and demand,                       pricing strategy accommodating various charging and parking
+   posing challenges to modern smart grids. While RE generation is                  decisions of EVs based on a combined framework of time-of-use
+   inherently less controllable, the emergence of controllable loads,               (TOU) pricing and intraday-block pricing (IBP), incentivizing
+   particularly electric vehicles (EVs) with their flexible charging                EV participation in RE following. The numerical results show
+   and discharging capabilities, offers a promising solution to                     that the proposed RE following mechanism significantly improves
+   dynamically adjust energy consumption to match RE availability.                  RE utilization, leading to an average increase of 62.04% in the
+   To this end, this paper proposes a RE following mechanism                        RE consumption ratio and a 13.35% boost in average profits
+   for EV aggregator (EVA), enabling coordinated charging and                       compared to the other two cases without RE following strategies.
+   discharging of EVs. First, we mathematically quantify the aggre-
+   gated flexibility of EVs using an affine transformation of convex                   Index Terms—Renewable energy following, electric vehicles,
+   polytopes. This approach improves computational efficiency and                   Minkowski sum approximation, aggregated EV flexibility, pricing
+   accuracy in aggregating individual heterogeneous EV flexibility                  strategy.
+   with different parameters. Then, a RE following mechanism for
+   the EVA is formulated, treating the quantified EV flexibility
+                                                                                                              I. I NTRODUCTION
+      Received 3 February 2025; revised 4 May 2025; accepted 11 June 2025.
+   Date of publication 16 June 2025; date of current version 25 August 2025. This   A. Motivation
+   work was supported in part by the Hong Kong Government ITF RTH Scheme;
+                                                                                          HE RENEWABLE energy (RE) generation is rapidly
+   in part by the Green Tech Fund under Grant GTF202020192; in part by the
+   Australian Research Council (ARC) Research Hub under Grant IH180100020;
+   in part by the ARC Training Centre under Grant IC200100023; in part by the
+                                                                                    T     accelerating, such as solar and wind, due to its clean
+                                                                                    and cost-effective advantages over traditional fossil fuel-based
+   ARC Linkage Project under Grant LP200100056; in part by ARC under Grant
+   DP220103881; in part by the National Natural Science Foundation of China         power generation [1], [2], [3]. However, RE generation has
+   under Grant 72061147004, Grant 72342001, and Grant 72171206; in part by          uncontrollable generation patterns [4], which will result in
+   the Research Project of Department of Science and Technology of Hunan            a mismatch between energy demand and supply [5], [6].
+   Province under Grant 2025JJ10009, Grant 2022RC4025, Grant 2025QK1004,
+   Grant 2023JJ50312, Grant 2023JJ50010, and Grant 2024RC9012; in part by           Presently, the utilization of battery energy storage systems
+   the JC STEM Lab of Future Energy Systems (2025-0039); in part by the             (BESSs) can alleviate this imbalance problem to some
+   Global STEM Professorship (GSP313); in part by the Startup Grant of City         extent [2]. However, their adoption comes with substantial
+   University of Hong Kong (Data Driven Real Time Smart Energy Management
+   System Supporting Energy Transition); in part by the Shenzhen Institute of       capital investment, which remains a barrier at the current stage.
+   Artificial Intelligence and Robotics for Society (AIRS); and in part by the      Fortunately, the burgeoning of controllable loads presents a
+   Shenzhen Key Laboratory of Crowd Intelligence Empowered Low-Carbon               viable solution to better align the load profile with the gener-
+   Energy Network under Grant ZDSYS20220606100601002. Paper no. TSG-
+   00200-2025. (Corresponding authors: Hongming Yang; Yuechuan Tao.)                ation patterns of RE, known as “RE following” strategy. By
+      Shuying Lai is with the Faculty of Data Science, City University of Macau,    dynamically adjusting demand, these loads can facilitate the
+   Macau, China.                                                                    integration of RE into the grid and enhance the consumption
+      Zhao Yang Dong and Yuechuan Tao are with the Department of Electrical
+   Engineering, City University of Hong Kong, Hong Kong (e-mail: yuech-             of RE.
+   tao@cityu.edu.hk).                                                                  On the other hand, electric vehicles (EVs) are increas-
+      Hongming Yang is with the School of Electrical and Information                ingly adopted due to their contributions to reducing carbon
+   Engineering, Changsha University of Science and Technology, Changsha
+   410114, China (e-mail: yhm5218@163.com).                                         emissions and are expected to become one of the largest
+      Christine Yip is with CAFEA Smart City Ltd., Hong Kong.                       electricity-consuming devices in the future [7]. EVs exhibit
+      Jing Qiu is with the School of Electrical and Information Engineering, The    inherent flexibility, with bidirectional charging and discharg-
+   University of Sydney, Sydney, NSW 2006, Australia.
+      Junhua Zhao is with the School of Science and Engineering and the             ing capabilities through vehicle-to-grid (V2G) technologies.
+   Shenzhen Institute of Artificial Intelligence and Robotics for Society, The      Additionally, studies have shown that many EVs remain
+   Chinese University of Hong Kong (Shenzhen), Shenzhen 518100, China.              connected to their chargers long after charging is complete,
+      Color versions of one or more figures in this article are available at
+   https://doi.org/10.1109/TSG.2025.3580386.                                        which bring further flexibility [5], [8]. This flexibility can
+      Digital Object Identifier 10.1109/TSG.2025.3580386                            be harnessed by the EV aggregator (EVA), who coordinates
+                   1949-3053 
+                             c 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence
+                          and similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                                          See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3874                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+                                                                                                           TABLE I
+   the charging and discharging profiles of heterogeneous EV                   C OMPARISONS OF D IFFERENT EV F LEXIBILITY AGGREGATION M ETHODS
+   fleets during the parking hours to maximize their collective
+   contribution to RE following, thereby minimizing the gap
+   between energy demand and supply.
+
+
+   B. Literature Review
+      In literature, it is generally accepted that uncoordinated EV
+   charging can significantly strain the power grid by increasing
+   peak demand and causing localized congestion [9], [10]. By
+   contrast, coordinated EV charging relieves the negative effect
+   of uncoordinated charging. For instance, in [11], flexible and
+   secure energy management was achieved through coordinated
+   operations among REs, EVs, and the DR program. Similarly,
+   in [12], a hybrid flexible-securable operation framework
+   for smart distribution networks with grid-connected multi-
+   microgrids using a two-layer coordinated energy management
+   strategy was proposed. In existing works, the inherent flex-
+   ibility of EVs is utilized to provide grid services mainly                  method utilizing the electric spring under renewable genera-
+   including voltage regulation, frequency regulation, and peak                tion permission was investigated to enhance the operational
+   demand reduction [13], [14]. For voltage regulation, EVs                    performance of smart distribution networks. Similarly, [4]
+   can be utilized to provide local voltage support by supply-                 developed a risk-averse flexi-intelligent energy management
+   ing or absorbing active power through V2G and reactive                      system for the microgrid operator to optimize the operation
+   power through smart inverters according to the voltage sig-                 using demand-side flexibility. For price incentives, EV users
+   nals, such as voltage sensitivity. For example, in [15], a                  actively respond to pricing strategies, such as TOU pricing and
+   voltage regulation strategy using EV was proposed based                     dynamic pricing, to charge energy during off-peak hours and
+   on an adaptive voltage sensitivity coefficient to plan the                  avoid charging during peak hours. For example, [18] proposed
+   total available active and reactive power, and a parameter                  a TOU-based approach for coordinating plug-in EV charging
+   “involvement level” was introduced for the fair pricing of                  to reduce aggregators’ increased energy costs and minimize
+   participating EV users. For frequency regulation, EVs can                   the loss of life of primary distribution transformers. It involved
+   hierarchically contribute to regulation up and down and capac-              three sequential stages: calculating charging power profiles
+   ity reserve. EV adjusts its charging profiles in response to                favorable for the network, determining TOU tariff time bands
+   price signals broadcast by the grid, with regular updates to                to incentivize PEV charging, and applying the TOU tariffs to
+   reflect real-time frequency changes. For instance, in [16],                 the PEV coordination. Reference [19] explored a DR program
+   an optimization was presented for a large-scale EV cluster                  applying TOU pricing for an energy hub that integrated both
+   participating in frequency regulation. In order to improve the              renewable and non-renewable sources, including PV systems,
+   control performance of large-scale clusters, a hierarchically               tidal turbines, fuel cells, and combined heat and power units.
+   distributed control framework was established, which realized               Results showed that the overall profits could be increased by
+   the individual-level orderly scheduling of EVs based on dis-                around 30%. In addition, [20] studied the TOU-based energy
+   tributed sorting. For peak demand reduction, EVs reduce peak                management scheme of active and reactive power of a flexible
+   demand by shifting charging loads to periods of lower overall               renewable energy-based virtual power plant placed in a smart
+   demand. As demonstrated by [17], it analyzed a market-based                 distribution system to boost the economic, operational, and
+   mechanism enabling EVs and households to participate online                 security indices of the system.
+   in load curtailment based on charging requirements and load                    To better utilize the EV flexibility, five different EV flexibility
+   curtailment tolerances aimed at alleviating network congestion              aggregation methods are compared from four different aspects,
+   while ensuring power quality was maintained.                                including the principle of aggregation, computation, accuracy
+      To incentivize EVs to provide grid services as demand                    and heterogeneity handling in Table I. It can be found that
+   response (DR) resources, two main methods can be summa-                     the proposed method can achieve high accuracy with low
+   rized in the literature, namely, authorized direct EV control               computational complexity while considering EV heterogeneity.
+   and price incentives. Authorized direct control ensures that
+   only agents authorized by EV users, such as the EVA, are                    C. Research Gaps
+   permitted to manage the charging and discharging of EVs.                       While coordinated energy management has been studied
+   For instance, in [5], a DR strategy was developed, enabling                 in the abovementioned literature, several critical challenges
+   the EVA to utilize EVs as DR resources for participation in                 remain unresolved. First, limited research has explored lever-
+   the option market. Through this mechanism, the EVA could                    aging EV flexibility to directly consider RE following as
+   respond to electricity retailers’ option execution requests,                an objective function. However, as RE penetration increases,
+   earning premiums as additional revenue while optimizing                     the mismatch between generation and demand becomes more
+   the EV charging profile. In [3], a demand-side management                   pronounced, making RE following increasingly critical. In
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                         3875
+
+
+
+   this situation, existing EV management approaches, which                    traditional short-term, resource-constrained regulation mecha-
+   primarily focus on short-term grid stability like voltage and               nisms that are insufficient under high DER integration. The
+   frequency regulation, are insufficient under large RE pen-                  proposed bi-level framework not only considers the objective
+   etration. These traditional methods are passive, aiming for                 of aligning the aggregate EV flexibility with the fluctuating
+   immediate recovery rather than long-term coordination. Hence,               availability of RE but also simulates the EV users’ price
+   there is a need to shift demand patterns over longer periods                responsiveness and willingness to participate. To evaluate RE
+   to align with renewable generation cycles, a challenge that                 following performance effectiveness, two assessment methods,
+   traditional approaches fail to adequately address.                          namely, Euclidean norm and cosine similarity, are employed.
+      Second, current price incentive strategies, such as [25],                    Second, a joint combination of both direct EV control
+   often neglect EV user responsiveness to pricing. Some studies               and price incentive schemes is formulated to achieve effec-
+   attempt to model price responsiveness using dynamic pric-                   tive RE following. By jointly applying TOU pricing and
+   ing [26]. Although dynamic pricing adjusts prices in real time,             intraday block pricing (IBP) for both charging and parking
+   enabling more granular management of EV charging behavior                   services, the proposed approach systematically captures the
+   and consequently higher profitability of the EVA by adjusting               heterogeneous behavioral profiles of EV users, specifically,
+   prices in real time or intraday intervals, it poses several                 their varying degrees of price responsiveness and willingness
+   challenges, including price volatility, which exposes EV users              to participate in flexibility programs. This design overcomes
+   to financial risks that they neither possess the knowledge to               limitations in existing price incentives, where accurate estima-
+   handle nor are expected to manage, and the need for advanced                tion of responsiveness becomes challenging, and direct control
+   infrastructure to support real-time updates. Additionally, its              strategies, where willingness to participate is often over-
+   effectiveness is limited by uncertain user responsiveness due to            looked [19], [25], [27]. The differentiated pricing for various
+   behavioral inertia, awareness gaps, and technical constraints.              types of users not only attracts more EVs to actively participate
+   As a result, relying on price incentives alone makes it difficult           in the RE following program by offering financial benefits but
+   to realize effective RE following. In contrast, authorized direct           also ensures that EVs with no participation willingness are
+   control is more straightforward to align the charging profile               incentivized to vacate parking spaces after charging, thereby
+   with the RE generation pattern. However, existing methods                   enhancing the overall flexibility of the EV fleet and optimizing
+   often overlook EV users’ willingness to participate in such                 RE integration. This targeted differentiation enhances the
+   programs. Furthermore, EVs that are reluctant to participate                system’s ability to mobilize flexibility where available and
+   may continue occupying charging spaces after completing their               ensures high participation rates and maximized grid support
+   charging. This not only reduces charging infrastructure utiliza-            from EV fleets under high RE penetration scenarios.
+   tion but also restricts highly willing EVs from contributing to                 Third, aggregated EV flexibility is mathematically quan-
+   RE following, limiting overall flexibility. This issue remains              tified based on affine transformations of convex polytopes.
+   inadequately addressed in current approaches.                               Through standard convex analysis techniques, we reformu-
+      Third, when the scales of EVs increase, optimizing the                   late the maximum-volume inner approximation problem as
+   individual EV flexibility for RE following through the                      linear programming that scales polynomially with the num-
+   EVA is computationally difficult. Some existing aggregation                 ber and dimension of individual flexibility sets. Compared
+   approaches, such as [5], assume homogeneity of EV parame-                   with [28], our method enables efficient computation with
+   ters, which simplifies the computation process. However, this               large-scale EV integration. Additionally, in contrast to [5],
+   assumption disregards the heterogeneity of EVs and results                  our approach accommodates heterogeneity, providing more
+   in a less precise operating envelope, leading to suboptimal                 accurate approximations of the aggregated EV flexibility set.
+   decision-making in managing the EV fleet for RE following.                  Besides, we further integrate the EV uncertainties into the
+                                                                               aggregation model by formulating a distributionally robust
+                                                                               chance-constrained problem, which is then converted into a
+   D. Contributions                                                            deterministic linear programming problem.
+      Hence, in this paper, three contributions can be summarized
+   to achieve effective RE following.
+      First, the RE following mechanism is introduced to tackle                               II. F RAMEWORK OF P ROPOSED RE
+   the challenges of increasing penetration of RE sources. A                                       F OLLOWING M ECHANISM
+   bi-level optimization framework is developed, encompassing                      In Fig. 1, the framework of the proposed RE following
+   decision-making processes for the EVA at the upper level                    mechanism for EVA is illustrated. First, the aggregated EV
+   and EV users at the lower level. While traditional methods                  flexibility is quantified based on affine transformations of
+   primarily target grid-level services or indirectly influence load           convex polytopes in Section III. Then, the optimized polytope
+   profiles through static price signals [15], [16], they lack a               P , i.e., the approximation of the aggregated EV flexibility
+   systematic objective to track RE output, which is increasingly              set P, will be the input of the upper level and treated as an
+   important as RE penetration rises and a large mismatch                      operating envelope for the aggregation of heterogeneous EVs.
+   between generation and demand becomes a dominant source of                      Second, in the upper-level problem, EVA will design RE
+   grid imbalance. The proposed RE following strategy represents               following mechanism via different pricing strategies for both
+   a proactive, long-term approach that reshapes user behaviour                flexible and non-flexible EVs. The EVA will also control
+   and charging patterns to follow RE availability, in contrast to             the charging and discharging decisions of flexible EVs based
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3876                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+
+                                                                               announced pricing scheme based on their own interests,
+                                                                               making decisions regarding participation in the RE following
+                                                                               plan, as well as their charging and parking behaviors. The
+                                                                               users’ responses are then passed back to the upper level, where
+                                                                               the EVA updates and refines the pricing strategy accordingly.
+                                                                               This iterative process continues until equilibrium is achieved,
+                                                                               ensuring that the final outcome represents a balance between
+                                                                               the EVA’s profitability and EV users’ individual utilities.
+
+                                                                                          III. Q UANTIFYING EV F LEXIBILITY S ET
+                                                                                  In this part, the individual EV flexibility set will be modeled
+                                                                               first. Then, the aggregated flexibility set will be formulated.
+                                                                                  First, a vector is used to denote the net charg-
+   Fig. 1.   Framework of the proposed RE following mechanism.                 ing power profile of EV user i, shown as: PNC                   i     :=
+                                                                               (PNC
+                                                                                  i (1), . . . , Pi (t), . . . , Pi (T)) ∈ R , and Pi (t) is the
+                                                                                                  NC              NC          T            NC
+
+                                                                               net charging rate of EV i ∈ Fle at time t. Given the net
+   on the optimized polytope P in Section IV as an operating                  charging power profile, the accumulated net charging energy
+   envelope. Here, the flexible EVs refer to those who are willing             delivered to the EV at time t+1 EiNC (t+1) is explained in (1).
+   to participate in the EV flexibility plan, while the non-flexible           Here, the accumulated charging energy profile of EV user i is
+   EVs are the opposite. For non-flexible EVs, TOU pricing is                  shown asEiNC := (EiNC (1), . . . , EiNC (t), . . . , EiNC (T)) ∈ RT .
+   applied to charging decisions to smooth charging demand and
+   to allow the EVA to charge higher rates during peak hours                                                               i (t)η
+                                                                                                EiNC (t + 1) = EiNC (t) + PNC                       (1)
+   when demand is high. This increases revenue by capitalizing
+                                                                               where PNC i   is the net charging profile of flexible EV user i;
+   on periods of high demand. Additionally, an IBP scheme
+                                                                               Fle is the set of EV users who participate in the EV flexibility
+   governs parking decisions to increase the parking cost of EVs
+                                                                               plan; EiNC is the accumulated charging energy profile of EV
+   when they park longer and encourages them to vacate the
+                                                                               user i; EiNC (t) is the accumulated charging energy of EV user
+   parking lot once the charging is completed. Although these
+                                                                               i at time t; η is the charging efficiency.
+   users are not directly controlled, the pricing still provides
+                                                                                  Then, the heterogeneous individual flexibility set Pi is
+   them with opportunities to participate in the DR program
+                                                                               further shown in (2). In (2), the net charging power limit and
+   and reduce their costs by aligning their behavior with system
+                                                                               accumulated net charging energy limit are demonstrated.
+   needs. By comparison, for flexible EVs, charging decisions                                                        
+   are guided by the IBP scheme, which links charging costs                          Pi = PNC  i   ∈ RT |HPNC
+                                                                                                            i    ≤ hi , H := (L, −L, I, −I),
+   to the total energy charged rather than the time of charging.                                                       
+                                                                                               NC            NC
+   When the total charging amount increases, the charging cost                       hi := Ei , −ENC   i , P i  , −P NC
+                                                                                                                     i                       (2)
+   will increase using the IBP scheme to ensure the charging
+                                                                               where L is a lower triangular matrix and I is the identity
+   profits of the EVA. Since the charging schedule for flexible                                       NC
+   EVs is controlled by the EVA, the TOU pricing model is                      matrix; PNC
+                                                                                         i   and Pi are the minimum and maximum net
+                                                                                                                                                NC
+   less suitable for these cases. Moreover, parking decisions are              charging power limit on the power profile; ENC         i   and Ei are
+   influenced by a fixed unit pricing mechanism, designed to                   the minimum and maximum accumulated energy limit on the
+   offer a comparatively lower parking fee as a way to encourage               energy profile.
+                                                                                                   NC               NC
+   EVs to contribute flexibility to the EVA. Two RE following                     Next, PNC                  NC
+                                                                                           i , Pi , E i , E i are explained in (3)–(6).
+   methods, namely, Euclidean norm and cosine similarity, will                 Equations (3) and (4) show the minimum and maximum net
+   be compared. In the upper level, the optimized charging and                 charging power limit on the power profile, which equal the
+   parking price, as well as the charging amount breakpoint and                minimum and maximum rate during the time periods of arrival
+   parking time breakpoint, will be broadcast to the lower level.              and departure. Equation (5) shows the minimum accumulated
+      Third, in the lower-level problem, EVs will decide whether               charging energy limit on the energy profile equals the required
+   to participate in the RE following plan in Section V based                  energy storage state when departing minus the initial energy
+   on the pricing information from the upper level. Then, the                  storage state when arriving. Equation (6) shows the maximum
+   decision of willingness to participate and the responsiveness               accumulated charging energy limit on the energy profile equals
+   of the price signals (from the lower level), including charging             the maximum energy storage capacity minus the initial energy
+   requirements and parking time, will be broadcast to the                     storage when arriving.
+   upper level as input. Also, individual EV parameters will be                                                             
+                                                                                                                         Dep
+                                                                                     PNC
+                                                                                      i    = P Min
+                                                                                               i   · 1   T Arr
+                                                                                                           i    ≤ t ≤  T i                         (3)
+   broadcast to the EVA to facilitate deriving the aggregated EV                                                             
+   flexibility set.                                                                   NC                                  Dep
+                                                                                     Pi = PMax i    · 1 TArri   ≤ t ≤ Ti                           (4)
+      In brief, at the upper level, the EVA formulates a pricing                                                                             
+                                                                                               Req,Fle              Dep
+   scheme with the objective of achieving RE following, while                        ENC
+                                                                                      i    = Ei        · 1 t ≥ Ti          − EiIni · 1 t ≥ TArr
+                                                                                                                                            i      (5)
+   ensuring a certain level of profitability through imposed                                                                
+                                                                                      NC
+   constraints. At the lower level, EV users respond to the                          Ei = EiMax − EiIni · 1 t ≥ TArr       i                       (6)
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                           3877
+
+
+
+   where PMin
+            i     and PMax
+                       i   are the minimum and maximum rates of                affine transformation that approximates the aggregated EV net
+   EV user i; EiMax is the maximum storage capacity of EV i; EiIni             charging. Moreover, there are certain necessary and sufficient
+   is the initial energy storage state of EV i; TArr
+                                                  i   is the arrival           conditions for the containment problem shown as (16)–(18).
+                               Dep
+   time at the parking lot; Ti is the departure time; Ei
+                                                           Req,Fle
+                                                                   is                                  
+                                                                                             max Vol P ∝ |det()| ≈ Tr() + τ           (14)
+   the required energy storage state.                                                                                 
+      In theory, a Minkowski sum of the individual flexibility sets                          s.t. [, ] =      γi , ϕi                  (15)
+   can be applied to represent the aggregated EV flexibility set                                               i∈Fle
+   P, shown as (7).                                                                                ℘i ≥ 0                                            (16)
+                      ⎧                                         ⎫
+                      ⎨                                         ⎬                                  ℘i H = Hϕi                                        (17)
+                                          
+    P :=          Pi = PNC ∈ RT PNC =            i , Pi
+                                                PNC    NC
+                                                           ∈ Pi                                    ϕi h0 ≤ hi − Hγi                                  (18)
+              Fle
+                      ⎩                     Fle
+                                                                ⎭
+          i∈                                          i∈
+                                                                               where Vol(P ) is the volume of the inner approximation
+                                                                        (7)
+                                                                               polytope P ; det() is the determinant of ;  and  are the
+   where P is the aggregated EV flexibility set; Pi is the                     aggregation of γi and ϕi , respectively; Tr() is the linearized
+   individual flexibility set; PNC is the net charging profile of all          form of det() using a first-order Taylor expansion; τ is the
+   the flexible EV users.                                                      constant; ℘i is the auxiliary matrix to be optimized.
+      However, it is NP-hard to calculate the aggregated EV                       It is recognized that all optimization problems in power
+   flexibility set P. In order to find an efficient approach to                systems, including the RE following strategy, are inherently
+   compute the subset of the aggregated EV flexibility set, we use             subject to uncertainty, particularly due to temporal uncertain-
+   polytope P ⊆ P to approximate P. Based on this constraint,                 ties associated with EV availability and unexpected changes in
+   we can solve the optimal inner polytope containment problem                 EV demand. Such uncertainties can indeed affect the accuracy
+   by maximizing the volume function.                                          and robustness of the resulting charging schedules and pricing
+      To be specific, first, the inner approximation of each                   strategies. To mitigate this problem, we have modelled the
+   heterogeneous individual flexibility set Pi is shown as (8).                impact of these uncertainties on the robustness of the proposed
+                                                                               optimization framework in the flexibility set formulation.
+                                 γi + ϕi P0 ⊆ Pi                        (8)       To be specific, the feasibility region of the flexibility set
+   where γi and ϕi are variables that can ensure each AH-polytope              is determined by a series of parameters, including TArr          i ,
+                                                                                 Dep     Req,Fle
+   γi + ϕi P0 closely approximates its corresponding individual                Ti , Ei           , and Eiini . Considering these uncertainties, the
+   net charging set Pi ; P0 is the base set.                                   individual EV flexibility set can be updated as: Pi = {PNC     i   ∈
+      Then, P0 is further explained in (9)–(10). Equation (9)                  RT |HPNCi   ≤  h  i + εi } where  εi is the prediction error.
+   shows the base set and (10) shows the calculation of the                       We assume the mean and covariance of the prediction error
+   average individual net charging set parameter.                              are known based on historical data. Then, the ambiguity set
+                                                                                can be expressed as:
+                  P0 := PNC ∈ RT |HPNC ≤ h0                    (9)                                                                             
+                          ⎛          ⎞                                            = PDF(εi )|E(εi ) = μi , E (εi − μi )(εi − μi )T = i i T
+                                                                                                                                              (19)
+                   h0 := ⎝        hi ⎠ Fle                  (10)
+                                  i∈Fle                                       where E[·] denotes the expectation; μi and i are the mean
+                                                                               and covariance of the prediction error; PDF(·) is the proba-
+   where h0 is the average individual net charging set parameter;
+                                                                               bility distribution function.
+   |Fle | is the total number of flexible EVs.
+                                                                                  Then, constraint (18) evolves into the following chance-
+     Next, the Minkowski sum of AH-polytopes is the inner
+                                                                               constrained problem:
+   approximation of the polytope P ⊆ P, shown as (11).                                                                               
+                                                                                  inf     Prεi HPNC ≤ hi + εi |∀ϕi h0 ≤ hi + εi − Hγi ≥ 1 − κ
+                   P =     (γi + ϕi P0 ) ⊆     Pi          (11)                PDF(εi )∈
+                                                                                                   i
+
+                          i∈Fle                        i∈Fle                                                                                       (20)
+          
+      As i∈Fle (γi + ϕi P0 ) is still computationally intractable,            where κ is the violation rate.
+   we use (12) to approximate P . Thus, we can derive (13) as                   According to [31], this distributionally robust chance-
+   the inner approximation of P .                                             constrained problem can be reformulated as the following
+                                                                            deterministic linear programming problem:
+                  (γi ) +      (ϕi )P0 ⊆      (γi + ϕi P0 )    (12)
+                i∈Fle          i∈Fle                i∈Fle                     ϕi h0 (r) ≤ hi (r) − H(r, :)γi , r ∈ Rd                               (21)
+                                                                                          
+                  
+                P ≈            (γi ) +            (ϕi )P0              (13)         (1 − κ) κ        i (r) − (hi (r) + μi (r)) − ϕi h0 (r) + H(r, :)γi ≤ 0,
+                      i∈Fle             i∈Fle
+                                                                                 r ∈ Ru                                                              (22)
+     Finally, the maximum volume of P can be further quantified
+   based on volume function Vol(P ) = | det()|Vol(P0 ). As                   where Rd is the set of the rows in the constraint matrix without
+   Vol(P0 ) can be derived based on (9), the volume function                   uncertainties; Ru is the set of the rows of the constraint matrix
+   can be reformulated as (14) [30]. Note that (14) is a general               with uncertainties.
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3878                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+
+      To be noted, as for outliers that exceed the uncertainty                    2) RE Following Method Two: Cosine Similarity: Different
+   set, they typically represent a minority of the data with                   from the L2 norm, when measuring the shape of two curves
+   low occurrence probability. Thus, their influence is naturally              (the demand and generation curves), cosine similarity focuses
+   attenuated through the aggregation of a large number of EVs.                on the directional similarity or pattern of the curves, assessing
+   Individual anomalies tend to average out and exert minimal                  whether they follow the same trend regardless of their mag-
+   effect on the aggregated flexibility set.                                   nitude or vertical shift, shown as (26). It is ideal for cases
+      Note that the decision variables for Section III include ,              where the relative shape is more important than the absolute
+   , γi , ϕi , and ℘i . And P will be the input for the upper level          values [34], [35]. In the context of RE following, we are
+   and treated as an operating envelope.                                       often interested in aligning energy demand with RE generation
+                                                                               patterns, where the timing and relative fluctuations are more
+                                                                               important than the exact energy quantities.
+            IV. U PPER L EVEL : EVA RE F OLLOWING VIA                                               T  Fle                 
+                       P RICING S TRATEGIES                                                           t=1 P (t) + P (t) × Ps (t)
+                                                                                                                      NF         RE
+                                                                                max.      ws                                 
+   A. Objective Function                                                                      T  Fle                2     T  RE 2 
+                                                                                                 t=1 P (t) + P (t)          ·    t=1 Ps (t)
+                                                                                      s∈S                        NF
+      1) RE Following Method One: Euclidean Norm: To enable
+   RE following by EVAs, the distribution network operator                                                                                         (26)
+   (DSO) first predicts the future RE generation profile and                      In the RE following problem, RE generation forecast errors
+   broadcasts it to EVAs as a reference baseline. Subsequently,                might occur. Thus, we model the RE generation forecast uncer-
+   EVAs coordinate with the DSO to align their charging and                    tainties utilizing the scenario-based uncertainty modelling,
+   discharging schedules with the predicted RE generation. To                  shown as the objective functions in (23) and (26). Based
+   ensure effective cooperation, the DSO and EVAs should                       on the probabilistic prediction of uncertainties, a probability
+   establish a formal agreement that includes clear incentives.                distribution is assigned to different levels of predicted values
+   The DSO may offer financial rewards, performance-based                      as a scenario weight in stochastic optimization. To be specific,
+   incentives, or reduced energy costs to EVAs in exchange                     in (23) and (26), it can be found that ws can be used to model
+   for their efforts in balancing the grid by following the RE                 the weight of different scenarios of RE generation during the
+   generation forecast. This agreement would align the DSO’s                   RE following process. When different scenarios or samples
+   grid stability objectives with the EVAs’ profitability goals,               are given weights, the optimization is transitioned from pure
+   ensuring mutual benefit and optimizing the integration of RE.               robustness to a more risk-sensitive approach.
+      To realize the RE following, the objective function can be
+   calculated based on the Euclidean norm (L2 norm). It is used                B. Return Requirement Constraints
+   to compute the distance between two points in spaces shown
+                                                                                  While achieving the RE following objective, EVAs must
+   as (23). The L2 norm is widely used for measuring vector
+                                                                               also ensure a certain level of return. Therefore, a return
+   magnitude and distance due to its simplicity, computational
+                                                                               requirement constraint should be incorporated to guarantee
+   efficiency, and intuitive geometric interpretation [32]. The L2
+                                                                               the profitability of the EVA. Hence, (27) guarantees that the
+   norm is highly suitable for RE following because it efficiently
+                                                                               revenue of the EVA is at least higher than a certain rate of the
+   minimizes the difference between RE generation and energy
+                                                                               cost of the EVA. A required rate of return r > 1 is introduced
+   consumption, ensuring smooth adjustments to match demand
+                                                                               to determine a fair return to the EVA.
+   and supply [33].                                                                                                               
+                                                                                        s.t. RCha + RPar ≥ r CBuy + COper + CFix           (27)
+                   T                                  2 
+                            1 
+                                 Fle
+                                              
+                                                  RE 
+          min .             ws  P (t) + P (t) − Ps (t)
+                                          NF
+                                                            (23)               To be specific, the charging revenue consists of both revenue
+                              2                         2
+                                                                               from non-flexible EV users RCha,NF and flexible EV users
+                  s∈S t=1
+                                                                               RCha,Fle , shown as (28). Details can refer ro (43) and (54).
+   where PFle (t) is the net EV charging power for flexible EV                 The parking revenue also consists of two parts, including
+   users; PNF (t) is the net EV charging power for non-flexible                the parking revenue from non-flexible EV users RPar,NF and
+   EV users; PREs (t) is the RE generation; ws is used to model the            flexible EV users RPar,Fle , shown as (29). Details can refer
+   weight of different scenarios during the RE following process;              to (49) and (55).
+   S is the set of scenarios.
+      Note that the flexible net EV charging power profile PFle                                     RCha = RCha,NF + RCha,Fle                      (28)
+   is within the inner approximation polytope P optimized in                                       R   Par
+                                                                                                              =R
+                                                                                                               Par,NF
+                                                                                                                         +RPar,Fle
+                                                                                                                                                   (29)
+   Section III, shown as (24). As for non-flexible EVs, rated
+                                                                                  As for the energy purchasing cost, operational cost, and
+   charging power is used, and it is calculated as (25).
+                                                                               fixed cost, they are further explained in (30)–(32).
+                                                              
+           PFle := PFle (1), . . . , PFle (t), . . . , PFle (T) ∈ P (24)                         
+                                                                                                  T                               
+                                                                                        CBuy =          λBuy (t) PFle (t) + PNF (t) t             (30)
+           PNF (t) = NF
+                      t  PCha,Rated                                    (25)                       t=1
+                                                                                                         T 
+                                                                                                                              
+   where |NFt | is the number of non-flexible EV users; P
+                                                          Cha,Rated
+                                                                                       COper = CIni EPile     PFle (t) + PNF (t) t                (31)
+   is the rated charging power of the charging pile.                                                               t=1
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                         3879
+
+                                   !                    "        #
+                                             1
+             CFix = CIni k          1−                      · 365      (32)    profits of the EVA. Equation (41) shows the VaR of the EVA.
+                                            (1 + k)ϑ                           Eq. (42) shows the total costs of the EVA.
+                                                                                                  &    T $
+                                                                                                                                    '
+   where CIni is the initial capital cost of the EVA; EPile is                                                                %
+   the life cycle charging energy of the charging pile, which is                   λ =C
+                                                                                     Pre     CVaR
+                                                                                                    1+    1 + P (t) + P (t) t
+                                                                                                                  Fle      NF
+                                                                                                                                       (38)
+   the total energy input into the charging pile over its entire                                              t=1
+   operational lifetime; k is the annual effective discount rate; ϑ                              
+                                                                                                 N
+                                                                                                             + 
+   is the expected years of operation of the charging facilities.                C CVaR
+                                                                                        =C VaR
+                                                                                               +    −π − CVaR      (1 − α)N                        (39)
+                                                                                                        n=1
+                                                                                                                           
+   C. Non-Flexible EV Pricing Strategy Constraints                                    π = RCha + RPar − CBuy + COper + CFix                        (40)
+                                                                                                                     
+      1) Charging Pricing: We formulate a TOU pricing strat-                       CVaR = inf χα | Pr χCTC ≤ χα ≤ 1 − α                            (41)
+   egy for non-flexible EV users to shift energy use to off-peak
+                                                                                   C   TC
+                                                                                            =C   Buy
+                                                                                                       +C   Oper
+                                                                                                                   +C   Fix
+                                                                                                                                                   (42)
+   hours, flattening demand and reducing the purchasing costs of
+   the EVA on costly peak-time generation from the grid.                       where CCVaR is the CVaR cost; CVaR is the VaR cost; π is
+      In (33), the generation consists of two parts, i.e., the                 the net profit of the EVA; α is the confidence level; N is
+   marginal cost and the premium. Also, a binary variable μg (t)               the number of samples; χα is the critical value at a given
+   is used to optimize the TOU price structure, and it indicates the           confidence level α; χCTC is the test statistic of the total costs.
+   coverage of the price block g. Note that there are several price               Then, the charging revenue of EVA from non-flexible EV
+   blocks in the TOU pricing, and each price block has a different             users can be shown as (43).
+   price level and time duration. The TOU pricing strategy should
+                                                                                                              
+                                                                                                              T
+   be subject to equations (34)–(35). Equation (34) aims to                                  RCha,NF =               λCha,TOU (t)PNF (t)t         (43)
+   ensure that each time period belongs to only one price block.                                               t=1
+   Equation (35) indicates that only consecutive time periods can
+   form a price block [2], [36].                                                  2) Parking Pricing: IBP is defined as a tiered pricing
+                                    $             %                         scheme where electricity prices increase progressively as total
+            λCha,TOU (t) =      μg (t) λMC
+                                        g +λ
+                                                Pre
+                                                               (33)            consumption exceeds breakpoints within a billing period [39].
+                                g∈G                                            In this case, IBP is used for non-flexible EV parking to incen-
+                                                                              tivize non-flexible users to vacate their space after completing
+                   μg (t) = 1                                          (34)    charging by increasing their parking cost.
+             g∈G
+                                      
+                                      G                                                      λPar,IBP
+                                                                                              h       = λPar,IBP
+                                                                                                         1       + (h − 1)ζ Par , h ∈ H            (44)
+              μg (t) − μg (T) +             μg (t) − μg (t − 1) = 2    (35)                  TIBP ≤ TIBP
+                                                                                                                      IBP
+                                                                                                     h ≤T                                          (45)
+                                      g=1
+                                                                               where λPar,IBP
+                                                                                         h      is the IBP parking fee of each price block for
+   where λCha,TOU (t) is the TOU charging price for non-flexible
+                                                                               non-flexible EV users; λPar,IBP     is the parking price of price
+   EV users; μg (t) is the binary variable used to optimize the                                            1
+                                                                               block one for non-flexible EV users; h is the parking price
+   TOU pricing structure that indicates whether time t belongs
+                                                                               block; ζ Par is the parking price increment; TIBP   is the parking
+   to price block g; G is the set of blocks used to model the                                                 IBP
+                                                                                                                                 h
+
+   TOU pricing strategy; λMC    is the marginal cost; λPre is the              time breakpoint; T   IBP
+                                                                                                        and T     are the lower and upper limits
+                            g
+   premium.                                                                    of the parking time breakpoint.
+      The marginal cost is explained in (36)–(37). Here, the                      Additionally, the parking time of EV user i of each price
+   marginal cost is calculated as the operational and fixed costs              block is constrained via equation (46). The parking time
+   incurred during each unit of net charging.                                  breakpoint at price block 0 is shown in (47). Equation (48)
+                                                                               shows that the total parking time for the non-flexible EV
+                   
+                   T                     
+                                          T                                    equals the charging time needed for the EV plus the aggregated
+         g =
+        λMC              λMC (t)μg (t)         μg (t)                  (36)    parking time of each price block.
+                   t=1                   t=1                                                                                          
+                           $                     %                          Par,IBP
+                                                                                Ki,h      = min max TPar,NF         h−1 , 0 , Th − Th−1 , h ≥ 1
+                                                                                                               − TIBP          IBP   IBP
+     λMC (t) = COper + CFix T 1 + PFle (t) + PNF (t) t                                                  i
+                                                                                                                                                   (46)
+                                                                       (37)
+                                                                                   TIBP
+                                                                                    0   = TCha
+                                                                                           i                                                       (47)
+      The premium is explained in (38)–(42) based on the con-                                           
+                                                                                TiPar,NF = TCha
+                                                                                            i   +              Par,IBP
+                                                                                                              Ki,h                                 (48)
+   ditioned value-at-risk (CVaR) model [37]. CVaR provides an                                           h∈H
+   estimate of the average losses that occur beyond the value-at-
+                                                                                        Par,IBP
+   risk (VaR) level, where VaR indicates the maximum potential                 where Ki,h       is the parking time of price block h; TPar,NF
+                                                                                                                                        i
+   loss within a certain confidence interval. Compared with VaR,               is the parking time of non-flexible EV i; TCha
+                                                                                                                           i   is the required
+   CVaR is useful for managing extreme risk and designing robust               charging time of EV user i.
+   risk mitigation strategies, as it captures the severity of potential           Then, the parking revenue of the EVA from non-flexible
+   losses in rare, high-impact scenarios [38]. To be specific,                 EV users can be shown as (49), which consists of two parts,
+   equation (39) shows the CVaR of the EVA. (40) shows the net                 including the revenue from the parking time less than or equal
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3880                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+
+   to the charging time, plus the extra parking time over the                       V. L OWER L EVEL : EV U SERS ’ D ECISION -M AKING
+   charging time, which indicates that the non-flexible EVs obtain              A. Objective Function
+   fair parking pricing during their charging processes, but get
+                                                                                   The objective function for the individual EV user in equa-
+   increased parking pricing after completing charging.
+                                                                                tion (56) aims to maximize the total utility minus the total
+                     (                                    )
+                                      Par,IBP Par,IBP                         costs of the EV user during the charging and parking process.
+     R Par,NF
+              =        λ        Ti +
+                         Par,Fix Cha
+                                           λh      Ki,h       (49)                                                            
+                   i∈NF                        h∈H                                          max UiCha + UiPar − CiCha + CiPar           (56)
+   where λPar,Fix is the fixed parking fee for EV users whose
+   parking time is less than or equal to the needed charging time;              where UiCha is the charging utility; UiPar is the parking utility;
+   NF is the set of non-flexible EV users.                                     CiCha is the charging cost; CiPar is the parking cost.
+                                                                                   The components of objective function (56), i.e., the charging
+                                                                                utility, parking utility, the charging cost and the parking cost,
+   D. Flexible EV Pricing Strategy Constraints
+                                                                                are further explained in (57)–(60).
+      1) Charging Pricing: In this paper, IBP is used by the                                                           
+   EVA for flexible EV user charging so that the flexible EVs                                     Req,Fle     Req,NF
+                                                                                UiCha = αi log Ei         + Ei       +1                      (57)
+   are charged based on their total charging amount, regardless                                                       
+   of the time of charging.                                                     UiPar = αi log TPar,Fle
+                                                                                                  i       + TPar,NF
+                                                                                                              i      +1                      (58)
+
+                   λfCha,IBP = λ1Cha,IBP + (f − 1)ζ Cha , f ∈ F         (50)                                      
+                                                                                                                   T
+                                                                                CiCha =          λCha,IBP
+                                                                                                  f       Di,f +                      Cha,NF
+                                                                                                                         λCha,TOU (t)Ei,t                   (59)
+                                   IBP
+             E   IBP
+                       ≤ EfIBP ≤ E                                      (51)              f ∈F
+                                                                                          (
+                                                                                                                   t=1
+                                                                                                                                          )
+                                                                                                                
+   where λfCha,IBP is the IBP charging price of each price block                CiPar =       λPar,Fix TCha
+                                                                                                        i   +         λPar,IBP
+                                                                                                                       h
+                                                                                                                                Par,IBP
+                                                                                                                               Ki,h           + λPar,Fix TPar,Fle
+                                                                                                                                                          i
+                                                                                                                h∈H
+   for flexible EV users; λ1Cha,IBP is the charging price of price
+                                                                                                                                                            (60)
+   block 1 for flexible EV users; f is the charging price block;
+   ζ Cha is the charging price increment; EfIBP is the charging                 where αi is coefficient of the utility function; Ei     is the
+                                                                                                                                                  Req,NF
+                                           IBP
+   amount breakpoint; EIBP and E          are the lower and upper                                                                      Cha,NF
+                                                                                required charging demand of non-flexible EV user i; Ei,t
+   limits of the charging amount breakpoint.                                    is the charging demand for non-flexible EV i at time t.
+      Additionally, the charging amount of EV user i of each price
+   block is constrained via equation (52). Equation (53) shows
+   the total charging demand of EV user i equals the aggregated                 B. Constraints
+   charging amount of the EV user across all price blocks.                        1) Charging Constraints: For EV user i, the charging
+                                                                            requirement in the flexible plan will be zero if this EV user
+                            Req,Fle
+        Di,f = min max Ei           − EfIBP
+                                         −1 , 0  , Ef
+                                                     IBP
+                                                         − E IBP
+                                                            f −1 (52)           does not choose the flexible EV plan, shown as (61).
+      Req,Fle
+                
+    Ei        =     Di,f                                           (53)                                0 ≤ Ei
+                                                                                                             Req,Fle
+                                                                                                                   ≤ xiFle EiMax,Cha
+                   f ∈F
+                                                                                                       (52) − (53)                                          (61)
+                                                                     Req,Fle
+   where Di,f is the charging amount of price block f ; Ei
+   is the required charging demand of flexible EV user i.                       where EiMax,Cha is the maximum charging demand; xiFle is the
+      Then, the charging revenue of EVA from flexible EV users                  binary variable that determines whether EV user i participates
+   can be shown as (54).                                                        in the EV flexibility.
+                               Cha,IBP                                           For user i, the charging requirement in a non-flexible
+                 RCha,Fle =          λf      Di,f          (54)                 schedule will be zero if this EV user chooses the flexible
+                                  i∈Fle f ∈F                                   EV plan, shown as (62). And for the non-flexible user, the
+                                                                                charging time is shown as (63), where the non-flexible EV
+      2) Parking Pricing: A fixed unit parking fee is used for                  will be charged with a rated charging power PCha,Rated .
+   flexible EV users. Thus, the parking revenue of the EVA from
+                                                                                                                      
+   flexible EV users can be shown as (55).                                                           Req,NF
+                                                                                               0 ≤ Ei       ≤ 1 − xiFle EiMax,Cha         (62)
+                              
+                 RPar,Fle =       λPar,Fix TPar,Fle
+                                            i               (55)                                   TCha = Ei
+                                                                                                                Req,NF
+                                                                                                                         /PCha,Rated                        (63)
+                                                                                                    i
+                                  i∈Fle
+                                                                                   Then, the charging demand of non-flexible EV user i at each
+   where TPar,Fle    is the parking time of flexible EV user i.
+             i                                                                  price block at time t = 1 and t > 1 are modeled in (64)–
+       Note that the decision variables for the upper level
+                                                                                (65), respectively. For (64), it means that the charging demand
+   include λfCha,IBP , λCha,TOU (t), λ1Cha,IBP , ζ Cha , EfIBP , Di,f ,
+                                                                                of the first hour of the non-flexible EV equals the smaller of
+   λPar,IBP
+     h      , λPar,IBP
+               1       , ζ Par , TIBP    Par,IBP
+                                  h , Ki,h       , λPar,Fix . And λfCha,IBP ,   the required charging demand or the charging demand that
+   λCha,TOU (t), EfIBP , λPar,IBP
+                            h      , λPar,Fix , TIBP
+                                                 h   will be the input for      is charged with the rated power. For (65), it constrains the
+   the lower level.                                                             charging demand for each hour that satisfies t > 1.
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                              3881
+
+
+                                                                                                                    TABLE II
+      Cha,NF        Req,NF
+     Ei,t    = min Ei      , PCha,Rated t , t = 1                            (64)                C OMPARISONS OF C ASES 1.1-1.4 F ROM F OUR C RITERIA
+                  (    (                                 )               )
+      Cha,NF               Req,NF
+                                      t
+     Ei,t    = min max Ei         −      PCha,Rated t, 0 , PCha,Rated t , t > 1
+                                       t=1
+                                                                               (65)
+     Then, the total charging demand of non-flexible EV user i
+   can be written as (66).
+
+                              Req,NF
+                                           
+                                           T
+                                                    Cha,NF
+                            Ei         =           Ei,t                        (66)
+                                             t=1
+      2) Parking Constraints: For flexible EV user i, the parking
+   time TPar,Fle
+          i      will be smaller than the maximum parking time
+   when the EV user chooses the flexible EV plan. Otherwise it
+   will be zero, shown as (67).
+                        0 ≤ TPar,Fle
+                             i       ≤ xiFle TMax,Par                          (67)
+   where TMax,Par is the maximum parking time.
+     For non-flexible EV user i, the parking time TPar,Fle
+                                                   i       will
+   be shorter than the maximum parking time when the EV user
+   does not choose the flexible EV plan. Otherwise, it will be
+   zero, shown as (68).                                                                 Fig. 2.   Demand for Cases 1.1-1.4 of individual EVA.
+                                        
+                  0 ≤ TPar,NF
+                        i     ≤ 1 − xiFle TMax,Par
+                      (46) − (48)                                              (68)        Case 1.1: Peak-to-average (PAR) minimization for EVA
+                                                                                        based on TOU price without RE following [41].
+   Note that the decision variables for the lower level                                    Case 1.2: Maximize the profit of EVA based on TOU price
+               Req,Fle     Req,NF
+   include Ei          , Ei       , TPar,Fle
+                                      i      , TPar,NF
+                                                 i
+                                                                    Cha,NF
+                                                         , xiFle , Ei,t      , Di,f ,   without RE following [42].
+     Par,IBP                      Req,Fle     Par,Fle
+   Ki,h      , Ti . And Ei
+                   Cha                    , Ti        , Ti , TPar,NF
+                                                           Cha
+                                                                     i       , xiFle       Case 1.3: Proposed pricing strategies using RE following
+   will be passed to the upper level as input. For flexible EVs,                        method one, i.e., Euclidean norm.
+                            Req,Fle           NC               Max , E NC , ENC ,
+   information like Ei              , PNC             Min
+                                        i , Pi , Pi , Pi                 i      i          Case 1.4: Proposed pricing strategies using RE following
+                             Dep
+   EiMax , EiIni , TArr
+                     i   , T i    will   be passed    to  EVA      to   derive   the    method two, i.e., cosine similarity.
+   aggregated EV flexibility in Section III.                                               Table II shows the comparisons of Cases 1.1-1.4 consid-
+      It is assumed that EV users are completely rational in mak-                       ering the PAR, RE consumption ratio, purchasing cost, and
+   ing decisions [26]. Hence, whether EV users will participate                         profit. It can be found that the PAR of Case 1.1 is the lowest at
+   in the RE following scheme is determined after the bi-level                          1.27, followed by Case 1.4 at 1.38. For RE consumption ratio,
+   optimization problem reaches an equilibrium. Although we                             it is defined as the total RE consumed divided by the total
+   acknowledge potential deviations due to irrationality, which                         amount of RE. It can be found that Case 1.3 has the highest RE
+   has already been explored in our previous works [29], detailed                       consumption ratio, reaching 32.37%, followed by Case 1.4. In
+   irrationality modeling will not be presented in this paper.                          general, the proposed methods can achieve 62.04% more RE
+                                                                                        consumption ratio on average compared with the cases where
+                                 VI. C ASE S TUDY                                       no RE following is considered. For purchasing cost, both Cases
+                                                                                        1.3 and 1.4 have relatively higher costs compared with the
+   A. Experiment Setting
+                                                                                        other two cases. As for the profit, Case 1.4 has the highest
+      The proposed RE following strategy is verified in the IEEE                        amount at 1,898.5 AU$, followed by Case 1.3. Compared
+   33-bus power distribution system [40]. In this paper, the RE                         Case 1.2 with Case 1.1, Case 1.2 has higher profits. Overall,
+   generators are assumed to be located on buses 6, 9, 12, 15, 18,                      the proposed methods can result in 13.35% higher profits on
+   20, 25, 27, 30 and 33. The EVAs are assumed to be located                            average compared with the other two cases.
+   on buses 2, 8, 14, 18, 20, 22, 25, 27, 31 and 33. In this tested                        In Fig. 2, it can be found that Cases 1.3 and 1.4 can perform
+   system, there are 100 EVs requesting charging services for                           better in terms of RE following, which is measured from
+   each EVA per day. The capacity of each PV bus and each                               two criteria, namely, the norm and cosine similarity (CS). To
+   wind bus is 400 kWh and 200 kWh, respectively.                                       be specific, Case 1.3 has the lowest norm value (the lower,
+      The simulations were completed by a PC with an Intel Core                         the better) and the second highest CS value (the higher, the
+   i7-9750 CPU @ 2.60 GHz with 16.00 GB RAM.                                            better), and Case 1.4 has the second lowest norm value, and
+                                                                                        the highest CS value compared with the other cases. Moreover,
+   B. Comparison of Different EVA Objectives                                            both flexible EV demand and non-flexible EV demand are
+      In the case study, Cases 1.1-1.4 are designed to test the                         illustrated in Cases 1.3 and 1.4, whereas there are no such
+   effectiveness of the RE following mechanisms. Note that a                            classifications for the demand in Cases 1.1 and 1.2. Although
+   fixed parking price is applied to Cases 1.1 and 1.2.                                 the price incentives in Cases 1.1 and 1.2 can achieve some
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3882                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+                                                                                                             TABLE III
+                                                                                     G RID I MPACT OF C HARGING M ANAGEMENT OF C ASES 1.1-1.4
+
+
+
+
+   Fig. 3.   Demand for Cases 1.3 and 1.4 of multiple EVAs.
+                                                                               under varying time steps and nodes [20], [40]. The results
+                                                                               show that in Cases 1.1 and 1.2, the voltage profiles exceed both
+                                                                               the upper and lower operational limits. For Case 1.3, while
+                                                                               the upper voltage limit remains within acceptable thresholds
+                                                                               due to its better performance in RE absorption, the lower
+                                                                               bound is breached. This outcome results from the created extra
+                                                                               demand peaks. In contrast, Case 1.4 demonstrates that voltage
+                                                                               levels remain consistently within both the upper and lower
+                                                                               operational bounds across the evaluated period. Hence, the
+                                                                               cosine similarity method can avoid creating new demand peaks
+                                                                               that will breach the operational limit.
+                                                                                  In Table III, the grid impact comparison of Cases 1.1-1.4
+                                                                               is analyzed from both power loss and voltage range. It can be
+                                                                               found that Case 1.2 results in the highest power loss at 0.0957
+                                                                               MWh, while Case 1.4 has the lowest power loss at 0.0316
+                                                                               MWh. Moreover, Case 1.4 has a voltage range of 0.952 p.u.-
+                                                                               1.0052 p.u., which indicates that the system operates within
+                                                                               permissible limits under this case. Although Case 1.3 operates
+                                                                               within the upper limit, the lower limit is still breached.
+   Fig. 4.   Voltage profiles of Cases 1.1 to 1.4.                                Combining the simulation results above, it can be found
+                                                                               that the cosine similarity method is more beneficial in general
+   level of RE following, the RE consumption ability is much                   because it can achieve a relatively higher RE consumption
+   lower compared with that of Cases 1.3 and 1.4. In addition,                 ratio, guarantee the profits of the EVA, and ensure the system
+   when the amount of RE is high, both flexible and non-flexible               operates within the permissible range. Therefore, the cosine
+   demand in Cases 1.3 and 1.4 tend to increase. However,                      similarity RE following method will be used in the rest of the
+   compared Case 1.3 with Case 1.4, more RE can be consumed                    case analyses.
+   when the amount of RE is high. Furthermore, for non-flexible
+   demand, the shape is more stair-stepping because a rated
+   charging power will be used for all the non-flexible EVs.                   C. Comparison of Different Pricing Strategies
+      In Fig. 3, charging demand for Cases 1.3-1.4 of multiple                    After examining the effectiveness of RE following mech-
+   EVAs in the entire network are summed in total. It can be                   anisms, the impact of different pricing strategies to achieve
+   found that although the Euclidean norm method in Case 1.3                   RE following will be studied. Cases 2.1-2.4 are designed to
+   aims to minimize the gap between demand and RE generation,                  verify the effectiveness of proposed pricing strategies using
+   it might result in new peak demand when there are multiple                  the cosine similarity RE following method. Note that a fixed
+   EVAs using the same method to conduct RE following,                         parking price is applied to Cases 2.1-2.3.
+   which will further strain the grid. By contrast, the cosine                    Case 2.1: Dynamic pricing to influence charging decisions
+   similarity method in Case 1.4 can avoid creating new peak                   of EVs with RE following [43].
+   demand because it aims to follow the pattern of RE generation                  Case 2.2: TOU pricing to influence charging decisions of
+   regardless of their magnitude or vertical shift. Furthermore,               EVs with RE following [44].
+   during the highest RE generation periods, both Euclidean                       Case 2.3: IBP pricing to influence charging decisions of
+   norm and cosine similarity can achieve the same level of RE                 EVs with RE following [39].
+   consumption.                                                                   Case 2.4: Proposed RE following mechanism based on
+      To further analyze the impact of the RE following strategy               quantified EV flexibility and pricing strategies to influence
+   on the grid, a power flow analysis is conducted in the                      the charging and parking decisions of both flexible and non-
+   distribution network based on the EV charging profiles and RE               flexible EVs.
+   generation. Note that we do not conduct the voltage regulation                 Fig. 5 shows the pricing strategies of Cases 2.1, 2.2, and
+   in this paper. Hence, we do not formulate voltage constraints.              2.4, and Case 2.4 only illustrates the charging price for the
+   In Fig. 4, the voltage profiles for Cases 1.1 to 1.4 are illus-             non-flexible EVs. It can be found that a relatively higher price
+   trated, offering a detailed comparison of system performance                is set during the period of 6:00 to 12:00 and 16:00 to 21:00
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                                     3883
+
+
+
+
+                                                                                    Fig. 7.    Comparisons of Cases 2.1-2.4 on profits and cosine similarity.
+
+   Fig. 5. Pricing strategies of Cases 2.1, 2.2, and 2.4 (Only charging price for
+   non-flexible EVs is illustrated for Case 2.4 in this figure).
+
+
+
+
+                                                                                    Fig. 8.    Average demand of EV users for Cases 2.1-2.4.
+
+
+
+   Fig. 6. Charging price for Cases 2.3 and 2.4 (Only charging price for flexible
+   EVs is illustrated for Case 2.4) as well as parking price for Case 2.4.
+
+
+
+   for the three cases. Compared Case 2.4 with Case 2.2, the
+   peak charging price is relatively higher. This is because the
+   TOU pricing strategy is formulated for non-flexible EVs to
+   discourage them from charging during peak hours to flatten                       Fig. 9.      Accumulated energy constraints using different approximation
+                                                                                    methods.
+   demand, increases EVA’s revenue by capitalizing on periods
+   of high demand, and reduces purchasing costs of the EVA on
+   costly peak-time generation from the grid.                                          Fig. 8 shows the comparisons of the average demand of
+      Fig. 6 shows the charging price for Case 2.3 as well as                       EV users for Cases 2.1-2.4. It can be found that the dynamic
+   the charging price and parking price for Case 2.4. Here,                         pricing strategy used in Case 2.1 results in the most fluctuating
+   Case 2.4 only illustrates the charging price for flexible EVs.                   demand. Compared Case 2.2 with Case 2.1, the peak demand
+   For charging price, it can be found that the IBP strategy                        from 8:00-12:00 is reduced, whereas the valley demand from
+   formulated in Case 2.4 for flexible EVs is relatively lower                      1:00-6:00 and 21:00-24:00 is increased. For Case 2.3, the
+   compared with that of Case 2.3. This is because Case 2.4                         demand is, on average, conserved compared with the other
+   aims to encourage the flexible EVs to participate in the RE                      cases. For Case 2.4, the demand shape is similar to that of
+   following. As for parking price, a fixed price will be charged                   Cases 2.2 and 2.3. During peak times, Case 2.4 has a relatively
+   for both flexible and non-flexible EVs during the required                       higher demand than Case 2.3 and a relatively lower demand
+   charging time for each EV. After the required charging time                      than Case 2.2.
+   expires, the same fixed price will be used for the parking of
+   flexible EVs, and the IBP will be used for the parking of
+   non-flexible EVs. Although a relatively higher parking price is                  D. Comparison of Different Aggregation Methods
+   formulated for the flexible EVs during the required charging                        Fig. 9 illustrates the comparisons of accumulated energy
+   time, the flexible EVs will benefit from a relatively fixed and                  constraints of all the flexible EVs using various approximation
+   lower parking price after the required charging time expires.                    methods. Note that the accumulated energy boundary using the
+      In Fig. 7, the profits and cosine similarity are further                      outer approximation is calculated as P0 |Fle |. Reference [23]
+   compared in Cases 2.1-2.4. It can be found that Case 2.4                         applied the Homothetic inner approximation method. It can be
+   can achieve the highest cosine similarity value than the other                   found that the proposed approximation method can allow more
+   three cases. Additionally, Case 2.4 achieves the second highest                  flexibility than the method used in [23], which indicates that
+   profitability. For dynamic pricing used in Case 2.1, it leads to                 the proposed method can more closely capture the true aggre-
+   a moderately high value of cosine similarity and the highest                     gated flexibility set and reduce conservatism. Furthermore, the
+   value in profitability. However, volatility, complexity, and                     optimal net energy profile using the proposed approximation
+   potential user resistance aspects of dynamic pricing can limit                   method is shown in the yellow dotted line. It can be found
+   its effectiveness in promoting widespread, optimal charging                      that the EVA will utilize the aggregated EV flexibility in the
+   behavior across the EV fleet.                                                    morning and evening periods to discharge energy to the grid
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3884                                                                           IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+
+                                                                               EVA has control over all EVs to realize the RE following
+                                                                               process, the Euclidean norm can outperform cosine similarity
+                                                                               in terms of maximizing RE utilization, as the centralized
+                                                                               control avoids unintended peak overlap.
+                                                                                  In this paper, we investigated RE following strategies for a
+                                                                               single EVA. However, as the EV industry continues to grow
+                                                                               rapidly, the role and functionality of EVAs are expected to
+                                                                               expand significantly, warranting further investigation into their
+   Fig. 10.   Computation times using different approximation methods.
+                                                                               interactions and collaborative trading mechanisms. Hence,
+                                                                               in the future, we will first develop a portfolio of proper
+   while satisfying the charging requirements of EVs. Moreover,                RE following methods for multiple EVAs that manage their
+   EVs tend to arrive after 18:00 and depart after 8:00 in the                 own RE following schemes to avoid creating new peak
+   morning.                                                                    demand. Also, we will explore EV flexibility trading among
+      Fig. 10 shows the computation times using different approx-              multiple EVAs, enabling a decentralized market where EVAs
+   imation methods, i.e., the methods used in [23] and [24],                   can exchange flexibility resources to optimize RE utilization.
+   as well as the proposed method. Note that [24] utilized                     Additionally, we will investigate standardized protocols for
+   the Zonotope-based approximation method. It can be found                    aggregator participation in grid operations and develop dis-
+   that the computation time for the proposed method increases                 tributed optimization and blockchain-based smart contracts
+   almost linearly with the number of EVs, whereas the com-                    between EVAs and the DSO, as well as EVAs and EV users
+   putation times of the other two aggregation methods increase                to enhance transparency, security, and scalability, supporting
+   more rapidly when the number of EVs increases to about 50.                  a more market-driven EV flexibility management framework.
+   As for the scenario without aggregation, it has the longest                 Furthermore, we can further model the spatial uncertainties
+   computation time compared with the other three aggregation                  on which EVA to choose for charging from multiple EVAs.
+   methods. When the number of EVs increases, the computation                  In addition, we can formulate a penalty pricing model to
+   time will increase exponentially.                                           deal with EV uncertainties and encompass decision-dependent
+                                                                               uncertainty modelling, enabling a much more accurate repre-
+                            VII. C ONCLUSION                                   sentation of real-world dynamics.
+      The increasing integration of renewable energy (RE)
+   presents challenges due to its uncontrollable features. To                                                R EFERENCES
+   enhance RE utilization, this paper proposes a RE following                   [1] H. Wang and J. Huang, “Cooperative planning of renewable generations
+   mechanism that leverages electric vehicle (EV) flexibility                       for interconnected microgrids,” IEEE Trans. Smart Grid, vol. 7, no. 5,
+                                                                                    pp. 2486–2496, Sep. 2016.
+   through electric vehicle aggregators (EVAs). The quantifi-                   [2] S. Lai, J. Qiu, and Y. Tao, “Credit-based pricing and planning strategies
+   cation of aggregated EV flexibility is conducted first using                     for hydrogen and electricity energy storage sharing,” IEEE Trans.
+   affine transformations of convex polytopes, enabling compu-                      Sustain. Energy, vol. 13, no. 1, pp. 67–80, Jan. 2022.
+   tationally efficient and scalable flexibility aggregation. This              [3] M. Norouzi, J. Aghaei, and S. Pirouzi, “Enhancing distribution network
+                                                                                    indices using electric spring under renewable generation permission,” in
+   serves as the operating envelope that supports the design of                     Proc. Int. Conf. Smart Energy Syst. Technol. (SEST), 2019, pp. 1–6.
+   pricing strategies for the charging and parking of both flexible             [4] M. Norouzi, J. Aghaei, T. Niknam, M. Alipour, S. Pirouzi, and
+   and non-flexible EVs, optimizing demand-side coordination                        M. Lehtonen, “Risk-averse and flexi-intelligent scheduling of microgrids
+                                                                                    based on hybrid Boltzmann machines and cascade neural network
+   with RE generation. Numerical results demonstrate that the                       forecasting,” Appl. Energy, vol. 348, Oct. 2023, Art. no. 121573.
+   proposed RE following mechanism enhances RE utilization                      [5] S. Lai, J. Qiu, Y. Tao, and J. Zhao, “Option-based demand response
+   and achieves 62.04% more RE consumption ratio on average                         management for electric vehicle aggregator,” IEEE Trans. Transp. Elect.,
+                                                                                    vol. 10, no. 2, pp. 4042–4054, Jun. 2024.
+   and 13.35% higher profits on average compared with the other                 [6] W. Su, J. Wang, and J. Roh, “Stochastic energy scheduling in microgrids
+   two cases where RE following strategies are neglected.                           with intermittent renewable energy resources,” IEEE Trans. Smart Grid,
+                                                                                    vol. 5, no. 4, pp. 1876–1883, Jul. 2014.
+                                                                                [7] Y. Tao, J. Qiu, S. Lai, G. Wang, H. Liu, and X. Sun, “Coordinated
+                  D ISCUSSIONS AND F UTURE W ORKS                                   planning of dynamic wireless charging systems and electricity networks
+                                                                                    considering range anxiety of electric vehicles,” IEEE Trans. Smart Grid,
+      Note that the choice between Euclidean norm and cosine                        vol. 15, no. 4, pp. 3876–3891, Jul. 2024.
+   similarity depends on the grid scenario, particularly in terms               [8] F. Al Taha, T. Vincent, and E. Bitar, “An efficient method for quantifying
+   of RE penetration levels, EV flexibility, and the coordination                   the aggregate flexibility of plug-in electric vehicle populations,” IEEE
+   architecture among EVs and EVAs. When multiple EVAs                              Trans. Smart Grid, vol. 16, no. 4, pp. 3142–3154, Jul. 2025.
+                                                                                [9] M. Muratori, “Impact of uncoordinated plug-in electric vehicle charg-
+   manage their own RE following schemes, and the available                         ing on residential power demand,” Nature Energy, vol. 3, no. 3,
+   RE generation significantly exceeds the EV fleet’s flexibility,                  pp. 193–201, 2018.
+   the Euclidean norm tends to perform better. However, as EV                  [10] S. Cundeva, A. K. Mateska, and M. H. Bollen, “Hosting capacity of LV
+                                                                                    residential grid for uncoordinated EV charging,” in Proc. 18th Int. Conf.
+   penetration increases and collective EV flexibility grows, using                 Harmonics Qual. Power (ICHQP), 2018, pp. 1–5.
+   the Euclidean norm across multiple uncoordinated EVAs can                   [11] L. Bagherzadeh, H. Shayeghi, S. Pirouzi, M. Shafie-khah, and
+   lead to synchronized peak demand, which in turn strain the                       J. P. Catalão, “Coordinated flexible energy and self-healing manage-
+                                                                                    ment according to the multi-agent system-based restoration scheme in
+   grid and violate operational constraints. In such cases, the                     active distribution network,” IET Renew. Power Gener., vol. 15, no. 8,
+   cosine similarity metric becomes more favorable. When one                        pp. 1765–1777, 2021.
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   LAI et al.: RE FOLLOWING STRATEGY VIA QUANTIFIED AGGREGATED HETEROGENEOUS EV FLEXIBILITY                                                                            3885
+
+
+
+   [12] M. H. Sabzalian, S. Pirouzi, M. Aredes, B. W. Franca, and A. C. Cunha,         [33] G. Herold and E. Kirshanova, “Improved algorithms for the approximate
+        “Two-layer coordinated energy management method in the smart                        k-list problem in Euclidean norm,” in Proc. IACR Int. Workshop Public
+        distribution network including multi-microgrid based on the hybrid                  Key Cryptogr., 2017, pp. 16–40.
+        flexible and securable operation strategy,” Int. Trans. Elect. Energy Syst.,   [34] P. Xia, L. Zhang, and F. Li, “Learning similarity with cosine similarity
+        vol. 2022, no. 1, 2022, Art. no. 3378538.                                           ensemble,” Inf. Sci., vol. 307, pp. 39–52, Jun. 2015.
+   [13] M. Zadehbagheri, M. Dehghan, M. Kiani, and S. Pirouzi, “Resiliency-            [35] J. Ye, “Cosine similarity measures for intuitionistic fuzzy sets and
+        constrained placement and sizing of virtual power plants in the                     their applications,” Math. Comput. Model., vol. 53, nos. 1–2, pp. 91–97,
+        distribution network considering extreme weather events,” Elect. Eng.,              2011.
+        vol. 107, pp. 2089–2105, Feb. 2025.                                            [36] S. Lai, J. Qiu, and Y. Tao, “Individualized pricing of energy storage
+   [14] S. Pirouzi, M. Zadehbagheri, and S. Behzadpoor, “Optimal placement of               sharing based on discount sensitivity,” IEEE Trans. Ind. Informat.,
+        distributed generation and distributed automation in the distribution grid          vol. 18, no. 7, pp. 4642–4653, Jul. 2022.
+        based on operation, reliability, and economic objective of distribution        [37] Y. Chow and M. Ghavamzadeh, “Algorithms for CVaR optimization
+        system operator,” Elect. Eng., vol. 106, pp. 7899–7912, Dec. 2024.                  in MDPs,” in Proc. 28th Conf. Neural Inf. Process. Syst., 2014,
+   [15] Q. Hu, S. Bu, and V. Terzija, “A distributed P and Q provision-                     pp. 3509–3517.
+        based voltage regulation scheme by incentivized EV fleet charging              [38] Y. Chow, A. Tamar, S. Mannor, and M. Pavone, “Risk-sensitive and
+        for resistive distribution networks,” IEEE Trans. Transp. Elect., vol. 7,           robust decision-making: A cvar optimization approach,” in Proc. Adv.
+        no. 4, pp. 2376–2389, Dec. 2021.                                                    Neural Inf. Process. Syst., 2015, pp. 1–9.
+   [16] X. Deng, Q. Zhang, Y. Li, T. Sun, and H. Yue, “Hierarchical distributed        [39] C. Cortez, A. Kasis, D. Papadaskalopoulos, and S. Timotheou, “Demand
+        frequency regulation strategy of electric vehicle cluster considering               Management for peak-to-average ratio minimization via intraday block
+        demand charging load optimization,” in Proc. IEEE 3rd Student Conf.                 pricing,” IEEE Trans. Smart Grid, vol. 14, no. 5, pp. 3584–3599,
+        Elect. Mach. Syst. (SCEMS), 2020, pp. 959–969.                                      Sep. 2023.
+                                                                                       [40] Y. Tao, J. Qiu, S. Lai, X. Sun, H. Liu, and J. Zhao, “Distributed
+   [17] M. Menghwar, J. Yan, Y. Chi, M. A. Amin, and Y. Liu, “A market-based
+                                                                                            adaptive robust restoration scheme of cyber-physical active distribution
+        real-time algorithm for congestion alleviation incorporating EV demand
+                                                                                            system with voltage control,” IEEE Trans. Power Syst., vol. 39, no. 1,
+        response in active distribution networks,” Appl. Energy, vol. 356,
+                                                                                            pp. 2170–2184, Jan. 2024.
+        Feb. 2024, Art. no. 122426.
+                                                                                       [41] C. L. Dewangan, S. Singh, S. Chakrabarti, and K. Singh, “Peak-to-
+   [18] A. M. Sanchez and A. A. Romero, “Dynamic TOU tariff for the                         average ratio incentive scheme to tackle the peak-rebound challenge
+        hierarchical coordination of PEV charging,” IEEE Trans. Power Del.,                 in TOU pricing,” Elect. Power Syst. Res., vol. 210, Sep. 2022,
+        vol. 40, no. 2, pp. 822–830, Apr. 2025.                                             Art. no. 108048.
+   [19] M. Zadehbagheri, M. J. Kiani, S. Pirouzi, M. Movahedpour, and                  [42] E. Celebi and J. D. Fuller, “Time-of-use pricing in electricity markets
+        S. Mohammadi, “The impact of sustainable energy technologies and                    under different market structures,” IEEE Trans. Power Syst., vol. 27,
+        demand response programs on the hub’s planning by the practical                     no. 3, pp. 1170–1181, Aug. 2012.
+        consideration of tidal turbines as a novel option,” Energy Rep., vol. 9,       [43] Z. Zhao and C. K. Lee, “Dynamic pricing for EV charging stations:
+        pp. 5473–5490, Dec. 2023.                                                           A deep reinforcement learning approach,” IEEE Trans. Transp. Elect.,
+   [20] E. Akbari, A. F. Naghibi, M. Veisi, A. Shahparnia, and S. Pirouzi,                  vol. 8, no. 2, pp. 2456–2468, Jun. 2022.
+        “Multi-objective economic operation of smart distribution network with         [44] Y. Cao et al., “An optimized EV charging model considering TOU price
+        renewable-flexible virtual power plants considering voltage security                and SOC curve,” IEEE Trans. Smart Grid, vol. 3, no. 1, pp. 388–393,
+        index,” Sci. Rep., vol. 14, no. 1, 2024, Art. no. 19136.                            Mar. 2012.
+   [21] H. Zhang, X. Wu, L. Liu, J. Ye, H. Zheng, and Z. Wu, “Adjustable
+        resource aggregation algorithm based on Minkowski sum,” in Proc. Int.
+        Conf. Electron. Devices, Comput. Sci. (ICEDCS), 2024, pp. 579–585.
+   [22] J. Sales-Ortiz and O. Ardakanian, “Efficient trading of aggregate bidi-
+        rectional EV charging flexibility with reinforcement learning,” in Proc.                                  Shuying Lai (Member, IEEE) received the B.Sc.
+        15th ACM Int. Conf. Future Sustain. Energy Syst., 2024, pp. 134–146.                                      degree in finance, accounting, and management
+   [23] L. Zhao, W. Zhang, H. Hao, and K. Kalsi, “A geometric approach                                            from the University of Nottingham, Ningbo, China,
+        to aggregate flexibility modeling of thermostatically controlled loads,”                                  in 2017, and the M.Com. degree in finance and
+        IEEE Trans. Power Syst., vol. 32, no. 6, pp. 4721–4731, Nov. 2017.                                        accounting and the Ph.D. degree in electrical engi-
+   [24] F. L. Müller, J. Szabó, O. Sundström, and J. Lygeros, “Aggregation and                                    neering from the University of Sydney, Australia,
+        disaggregation of energetic flexibility from distributed energy resources,”                               in 2019 and 2022, respectively. She is currently an
+        IEEE Trans. Smart Grid, vol. 10, no. 2, pp. 1205–1214, Mar. 2019.                                         Assistant Professor with the Faculty of Data Science,
+   [25] S. Sharma and P. Jain, “Integrated TOU price-based demand response                                        City University of Macau, Macau. Her main fields of
+        and dynamic grid-to-vehicle charge scheduling of electric vehicle aggre-                                  interest include risk hedging strategy, energy shar-
+        gator to support grid stability,” Int. Trans. Elect. Energy Syst., vol. 30,                               ing, artificial intelligence-assisted pricing, electricity
+        no. 1, 2020, Art. no. e12160.                                                  derivatives, and transactive energy.
+   [26] S. Lai, J. Qiu, Y. Tao, and J. Zhao, “Pricing for electric vehicle charging
+        stations based on the responsiveness of demand,” IEEE Trans. Smart
+        Grid, vol. 14, no. 1, pp. 530–544, Jan. 2023.
+   [27] A. Ghosh and V. Aggarwal, “Menu-based pricing for charging of
+                                                                                                                 Zhao Yang Dong (Fellow, IEEE) received the
+        electric vehicles with vehicle-to-grid service,” IEEE Trans. Veh. Technol.,
+                                                                                                                 Ph.D. degreee in electrical engineering from the
+        vol. 67, no. 11, pp. 10268–10280, Nov. 2018.
+                                                                                                                 University of Sydney, Sydney, Australia, in 1999. He
+   [28] L. Zhang, C. Sun, G. Cai, and L. H. Koh, “Charging and discharging                                       is currently the Head of Department and the Chair
+        optimization strategy for electric vehicles considering elasticity demand                                Professor of Electrical Engineering with the City
+        response,” eTransportation, vol. 18, Oct. 2023, Art. no. 100262.                                         University of Hong Kong, Hong Kong. His previous
+   [29] S. Lai, J. Qiu, Y. Tao, and J. Zhao, “Pricing strategy for energy                                        roles include a SHARP Professor of Energy Systems
+        supplement services of hybrid electric vehicles considering bounded-                                     and an inaugural Director of the UNSW Digital Grid
+        rationality and energy substitution effect,” IEEE Trans. Smart Grid,                                     Futures Institute, The University of NSW, Sydney,
+        vol. 14, no. 4, pp. 2973–2985, Jul. 2023.                                                                Australia; the Director of the ARC Research Hub for
+   [30] P. S. Modenov and A. Parkhomenko, Euclidean and Affine                                                   Integrated Energy Storage Systems; the Head of the
+        Transformations: Geometric Transformations. Waltham, MA, USA:                  School of Electrical and Information Engineering, The University of Sydney;
+        Acad. Press, 2014.                                                             and the Ausgrid Chair Professor and the Director of Ausgrid Centre for
+   [31] A. Zhou, M. Yang, M. Wang, and Y. Zhang, “A linear programming                 Intelligent Electricity Networks providing research and development support
+        approximation of distributionally robust chance-constrained dispatch           for the AUD500m Smart Grid, Smart City National Demonstration Project of
+        with Wasserstein distance,” IEEE Trans. Power Syst., vol. 35, no. 5,           Australia. His research interests include power system planning and stability,
+        pp. 3366–3377, Sep. 2020.                                                      smart grids and smart cities, renewable energy systems, and energy market.
+   [32] M. E. Celebi, F. Celiker, and H. A. Kingravi, “On Euclidean norm               He has been serving as an editor/associate editor for a number of IEEE
+        approximations,” Pattern Recognit., vol. 44, no. 2, pp. 278–283, 2011.         Transactions and IET journals.
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+   3886                                                                                 IEEE TRANSACTIONS ON SMART GRID, VOL. 16, NO. 5, SEPTEMBER 2025
+
+
+
+                            Hongming Yang (Member, IEEE) received the                                          Jing Qiu (Senior Member, IEEE) received the
+                            M.Sc. degree in electrical engineering from WHU in                                 B.Eng. degree in electrical and control engineer-
+                            1997, and the Ph.D. degree in electrical engineering                               ing from Shandong University, China, in 2008,
+                            from HUST in 2003. She was a Research Associate                                    the M.Sc. degree in environmental policy and
+                            with The Hong Kong Polytechnic University from                                     management, majoring in carbon financing in the
+                            2009 to 2010, a Visiting Scholar with North Carolina                               power sector from The University of Manchester,
+                            State University from 2010 to 2011, and a Research                                 U.K., in 2010, and the Ph.D. degree in electri-
+                            Fellow with the University of Newcastle from 2013                                  cal engineering from The University of Newcastle,
+                            to 2014. She joined CSUST, Changsha, China, in                                     Australia, in 2014. He is currently a Senior Lecturer
+                            1997, where she is currently a Full Professor. Her                                 of Electrical Engineering with the University of
+                            research interests include renewable energy in power                               Sydney, Australia. His areas of interest include
+                            systems and power markets.                               power system planning, data-driven energy market analysis, and artificial
+                                                                                     intelligence-assisted energy pricing and trading strategies. He is an Editorial
+                                                                                     Board Member of IET Renewable Power Generation and Energy Conversion
+                                                                                     and Economics.
+
+                            Yuechuan Tao (Member, IEEE) received the B.Eng.
+                            degree in electrical engineering and automation from
+                            Shanghai Normal University, Shanghai, China, in
+                            2017, and the M.E. degree in electrical engineering
+                            and the Ph.D. degree in electrical engineering from
+                            the University of Sydney, Australia, in 2019 and
+                            2022, respectively. He is currently a Global Research
+                            Assistant Professor with the City University of Hong
+                            Kong. His main fields of interest include data-
+                            driven power system operation and planning, electric
+                            vehicles, and smart grid data analytics.
+
+
+
+
+                             Christine Yip received the B.A. degree from                                      Junhua Zhao (Senior Member, IEEE) received
+                             the Hong Kong Baptist University, the M.B.L.                                     the Ph.D. degree in electrical engineering from the
+                             and M.P.A. degrees from Monash University,                                       University of Queensland, Brisbane, QLD, Australia,
+                             Melbourne, Australia, and the M.Phil. degree from                                in 2007. He was a Senior Lecturer with the
+                             The University of Hong Kong. She is currently                                    University of Newcastle and also with the Center
+                             pursuing the Ph.D. degree with the School of Civil                               for Intelligent Electricity Networks, University of
+                             Engineering, The University of Sydney. She is cur-                               Newcastle, Australia. He is currently the Assistant
+                             rently the Principal Consultant with the Digital Grid                            Dean and an Associate Professor with the School
+                             Futures Institute, University of New South Wales,                                of Science and Engineering, The Chinese University
+                             Australia. She is an entrepreneur with extensive                                 of Hong Kong (Shenzhen), Shenzhen, China. He
+                             experience in commercialization of innovation. She                               is also the Director of the Energy Market and
+   is also the Executive Director of CAFEA Smart City Ltd. based in Cyberport,       Finance Lab, Shenzhen Finance Institute, The Chinese University of Hong
+   Hong Kong, and the Founder and the CEO of AusMed Global Ltd. headquar-            Kong. His research interests include power system analysis and computation,
+   tered in the Hong Kong Science Park. She has held directorship in a number of     smart grid, electricity market, data mining, and artificial intelligence. He
+   companies, organizations, and NGOs. Her research interests include human-         received the “Young Scientist of the Future” Award from ADC Forum in
+   centered smart campus/smart city, smart and green technology applications         2016, the IEEE PES General Meeting Best Paper Award in 2014, and the
+   in a smart city, noninvasive digital med-tech innovation, and digital health      Science and Technology Progress Award (second prize) from the Hunan
+   management. She is a member of CPA, Australia, and the Hong Kong Institute        Provincial Government, China, in 2013. He is an Editorial Board Member
+   of Certified Public Accountants; and a Financial Risk Manager certified by        of Energy Conversion and Economics (IET) and Electric Power Components
+   Global Association of Risk Professionals.                                         and Systems.
+
+
+
+
+Authorized licensed use limited to: SOUTH CHINA UNIVERSITY OF TECHNOLOGY. Downloaded on March 27,2026 at 08:20:55 UTC from IEEE Xplore. Restrictions apply.
+

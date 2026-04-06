@@ -1,0 +1,11 @@
+﻿metric,value
+dayahead_net_energy_cost_usd,2947.9664446666843
+intraday_net_energy_cost_usd,2238.5928404017436
+dayahead_pv_curtailment_mwh,4.003397248806142e-07
+intraday_pv_curtailment_mwh,2.1974142499793293e-05
+dayahead_grid_ramp_mw,7.401802174789013
+intraday_grid_ramp_mw,8.096965904833333
+ev_actual_total_demand_mwh,0.35357960312071385
+dayahead_ev_planned_charge_mwh,0.36903064049338774
+intraday_ev_realized_charge_mwh,0.3535876346925092
+intraday_final_es_energy_mwh,0.20000045320002083

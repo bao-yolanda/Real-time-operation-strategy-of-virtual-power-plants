@@ -5,7 +5,7 @@ yalmip("clear");
 result = {};
 
 %% Parameter Reading
-
+NOFSLOTS = 24;
 % Default data for the 21st day
 day_price = 21;
 % load the parameters for the 21st day (compatible with mac)

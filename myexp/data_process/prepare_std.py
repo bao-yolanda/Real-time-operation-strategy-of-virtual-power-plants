@@ -1,6 +1,7 @@
 """
 参数标准化
 将所有资源参数统一格式为 NOFDER x NOFSLOTS 的矩阵
+支持多类型EV的向量化参数
 """
 import numpy as np
 from typing import Dict
@@ -43,44 +44,42 @@ def prepare_std_parameters(
           f"{f', EV聚合({NOFEV}组)' if param.ev_group_counts is not None else ''}")
 
     # ========== 初始能量 ==========
-    # Matlab代码:
-    # param_std.energy_init = [1; param.energy_init_es; ...]
-    # PV的初始能量设为1（假设是常数，没有能量存储）
+    # 注意：EV参数现在是数组 (NOFEV,)
     pv_cfg = config.pv
     energy_init_list = [
         np.array([pv_cfg.energy_init]),  # PV初始能量
         np.array([param.energy_init_es]),  # ES
-        param.energy_init_ev * ev_counts,  # EV（按组内车辆数缩放）
+        param.energy_init_ev,  # EV (NOFEV,) 已经是数组
     ]
     energy_init = np.concatenate(energy_init_list)
     param_std = {'energy_init': energy_init}
 
     # ========== 能量上限 ==========
-    # Matlab代码:
-    # param_std.energy_upper_limit = [2; param.energy_upper_limit_es; ...]
-    # PV的能量上限设为2（常数）
+    # param.energy_upper_limit_ev 是 (NOFEV,) 数组
+    # 需要扩展为 (NOFEV, NOFSLOTS) 矩阵
     energy_upper_limit_list = [
         np.full(NOFSLOTS, pv_cfg.energy_upper_limit),  # PV能量上限
         np.full(NOFSLOTS, param.energy_upper_limit_es),
-        *[np.full(NOFSLOTS, param.energy_upper_limit_ev * ev_counts[i]) for i in range(NOFEV)],  # EV
+        np.tile(param.energy_upper_limit_ev.reshape(-1, 1), (1, NOFSLOTS)),  # EV (NOFEV, NOFSLOTS)
     ]
     energy_upper_limit = np.vstack(energy_upper_limit_list)
     param_std['energy_upper_limit'] = energy_upper_limit
 
     # ========== 结束能量（也是下限的一部分） ==========
+    # 使用 concatenate 而不是 array，因为元素形状不同
     energy_end_list = [
-        pv_cfg.energy_end,  # PV
-        param.energy_init_es,  # ES回到初始值
-        *[param.energy_end_ev * ev_counts[i] for i in range(NOFEV)],  # EV
+        np.array([pv_cfg.energy_end]),  # PV 标量转数组
+        np.array([param.energy_init_es]),  # ES回到初始值
+        param.energy_end_ev,  # EV (NOFEV,) 数组
     ]
-    energy_end = np.array(energy_end_list)
+    energy_end = np.concatenate(energy_end_list)
     param_std['energy_end'] = energy_end
 
     # ========== 能量下限 ==========
     energy_lower_limit_base_list = [
         np.full(NOFSLOTS, pv_cfg.energy_lower_limit),  # PV
         np.full(NOFSLOTS, param.energy_lower_limit_es),
-        *[np.full(NOFSLOTS, param.energy_lower_limit_ev * ev_counts[i]) for i in range(NOFEV)],  # EV
+        np.tile(param.energy_lower_limit_ev.reshape(-1, 1), (1, NOFSLOTS)),  # EV (NOFEV, NOFSLOTS)
     ]
     energy_lower_limit_base = np.vstack(energy_lower_limit_base_list)
 
@@ -92,10 +91,12 @@ def prepare_std_parameters(
     param_std['energy_lower_limit'] = energy_lower_limit
 
     # ========== 放电功率上限 ==========
+    # param.power_dis_upper_limit_ev 是 (NOFEV,) 数组
+    # param.u 是 (NOFEV, NOFSLOTS) 矩阵
     power_dis_upper_limit = np.vstack([
         param.power_dis_upper_limit_pv.reshape(1, -1),  # PV (NOFPV, NOFSLOTS)
         np.full((1, NOFSLOTS), param.power_dis_upper_limit_es),  # ES (1, NOFSLOTS)
-        (np.full((NOFEV, NOFSLOTS), param.power_dis_upper_limit_ev) * param.u * ev_counts[:, None]),  # EV
+        np.tile(param.power_dis_upper_limit_ev.reshape(-1, 1), (1, NOFSLOTS)) * param.u,  # EV
     ])
     param_std['power_dis_upper_limit'] = power_dis_upper_limit
 
@@ -107,7 +108,7 @@ def prepare_std_parameters(
     power_ch_upper_limit_list = [
         np.zeros((NOFPV, NOFSLOTS)),  # PV不能充电
         np.full((1, NOFSLOTS), param.power_ch_upper_limit_es),  # ES
-        (np.full((NOFEV, NOFSLOTS), param.power_ch_upper_limit_ev) * param.u * ev_counts[:, None]),  # EV
+        np.tile(param.power_ch_upper_limit_ev.reshape(-1, 1), (1, NOFSLOTS)) * param.u,  # EV
     ]
     power_ch_upper_limit = np.vstack(power_ch_upper_limit_list)
     param_std['power_ch_upper_limit'] = power_ch_upper_limit
@@ -128,23 +129,26 @@ def prepare_std_parameters(
     # ========== 放电效率 eta_dis ==========
     eta_dis = np.zeros((NOFDER, NOFDER))
     eta_dis[NOFPV, NOFPV] = 1 / param.eta_dis_es  # ES
-    for idx in range(NOFPV + 1, NOFPV + 1 + NOFEV):  # EV
-        eta_dis[idx, idx] = 1 / param.eta_dis_ev
+    # EV: param.eta_dis_ev 是 (NOFEV,) 数组
+    for idx in range(NOFPV + 1, NOFPV + 1 + NOFEV):
+        ev_idx = idx - NOFPV - 1  # EV在数组中的索引
+        eta_dis[idx, idx] = 1 / param.eta_dis_ev[ev_idx]
     param_std['eta_dis'] = eta_dis
 
     # ========== 充电效率 eta_ch ==========
     eta_ch = np.zeros((NOFDER, NOFDER))
     eta_ch[NOFPV, NOFPV] = param.eta_ch_es  # ES
-    for idx in range(NOFPV + 1, NOFPV + 1 + NOFEV):  # EV
-        eta_ch[idx, idx] = param.eta_ch_ev
-
+    for idx in range(NOFPV + 1, NOFPV + 1 + NOFEV):
+        ev_idx = idx - NOFPV - 1
+        eta_ch[idx, idx] = param.eta_ch_ev[ev_idx]
     param_std['eta_ch'] = eta_ch
 
     # ========== 放电成本 ==========
+    # param.pr_dis_ev 是 (NOFEV,) 数组
     pr_dis_list = [
         np.zeros(NOFPV),  # PV没有放电成本
         np.array([param.pr_dis_es]),
-        np.full(NOFEV, param.pr_dis_ev),
+        param.pr_dis_ev,  # EV (NOFEV,) 数组
     ]
     pr_dis = np.concatenate(pr_dis_list)
     param_std['pr_dis'] = pr_dis
@@ -153,9 +157,8 @@ def prepare_std_parameters(
     pr_ch_list = [
         np.zeros(NOFPV),  # PV
         np.array([param.pr_ch_es]),
-        np.full(NOFEV, param.pr_ch_ev),
+        param.pr_ch_ev,  # EV (NOFEV,) 数组
     ]
-
     pr_ch = np.concatenate(pr_ch_list)
     param_std['pr_ch'] = pr_ch
 
@@ -165,15 +168,12 @@ def prepare_std_parameters(
         np.zeros((1, NOFSLOTS)),  # ES没有外部影响
         np.zeros((NOFEV, NOFSLOTS)),  # EV没有外部影响
     ]
-
     wOmiga = np.vstack(wOmiga_list)
     param_std['wOmiga'] = wOmiga
 
-
     # ========== EV特殊处理：离开时段前后的能量下限 ==========
-    # Matlab代码有两个循环处理这个逻辑
-
     ev_cfg = config.ev
+    
     # 第一个循环：最后一个可充电时段的能量下限 = energy_end
     for idx in range(NOFEV):
         ev_idx = NOFPV + 1 + idx  # EV在param_std中的索引
@@ -192,7 +192,6 @@ def prepare_std_parameters(
             if param.u[idx, jdx] - param.u[idx, jdx + 1] == 1:
                 # jdx是最后一个在场时段，jdx+1是离开时段
                 # 设置jdx-1和jdx-2的能量下限
-                # 注意边界检查
                 pre_departure_factor = ev_cfg.pre_departure_energy_factor
                 if jdx - 1 >= 0:
                     param_std['energy_lower_limit'][ev_idx, jdx - 1] = (
@@ -204,7 +203,6 @@ def prepare_std_parameters(
                         param_std['energy_end'][ev_idx] -
                         param_std['power_ch_upper_limit'][ev_idx, jdx] * pre_departure_factor * 2
                     )
-
 
     # 验证维度
     print(f"  energy_init shape: {param_std['energy_init'].shape}")

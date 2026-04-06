@@ -2,9 +2,14 @@
 配置文件 - 集中管理所有硬编码参数
 避免在代码中硬编码数值,提高可维护性和可配置性
 """
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Dict
 import numpy as np
+
+
+def _default_type_ratios() -> Dict[str, float]:
+    """默认EV类型比例"""
+    return {'a': 0.33, 'b': 0.34, 'c': 0.33}
 
 
 @dataclass
@@ -45,7 +50,24 @@ class ESConfig:
 
 @dataclass
 class EVConfig:
-    """电动汽车配置参数"""
+    """电动汽车配置参数 - 支持多类型EV"""
+    # 多类型EV配置 (在 prepare_parameters.py 中定义具体类型)
+    # 类型: a (75kWh, 40%->90%, 11kW), b (60kWh, 33.3%->83.3%, 22kW), c (45kWh, 30%->80%, 7kW)
+    
+    # 类型分配比例 (可调整) - 使用 default_factory 避免可变默认值问题
+    type_ratios: Dict[str, float] = field(default_factory=_default_type_ratios)
+    
+    # 敏感性分析用：目标EV数量
+    target_ev_count: int = None  # 120, 240, 360, 480 等
+    
+    # 聚合选项
+    aggregate_evs: bool = False  # 不聚合，保留每辆EV独立参数
+    max_evs: int = None  # 最大EV数量限制 (兼容旧参数)
+    
+    # 随机种子
+    seed: int = 42
+    
+    # 默认参数 (用于单类型模式，保持向后兼容)
     battery_capacity: float = 60.0  # kWh
     energy_init_ratio: float = 20.0 / 60.0  # 初始SOC
     energy_end_ratio: float = 50.0 / 60.0  # 结束SOC
@@ -58,10 +80,7 @@ class EVConfig:
     eta_dis: float = 0.90
     eta_ch: float = 0.90
     pr_dis: float = 150.0  # $/MWh
-    aggregate_evs: bool = True  # 是否按调度计划聚合EV
-    max_evs: int = None  # 最大EV数量限制
     pr_ch: float = 0.0  # $/MWh
-    # 离开前能量下限调整系数
     pre_departure_energy_factor: float = 0.9
 
     @property
@@ -87,71 +106,6 @@ class EVConfig:
     @property
     def power_ch_upper_limit(self) -> float:
         return self.power_ch_limit * 1e-3  # MW
-
-
-@dataclass
-class TCLConfig:
-    """温控负载配置参数"""
-    NOFTCL: int = 0  # TCL数量 (与MATLAB数据文件保持一致，param_day_21_pv_es_ev.mat中无TCL)
-    tcl_c: List[float] = None  # 等效电容 (MWh/K)
-    tcl_r: List[float] = None  # 等效电阻 (K/MWh)
-    tcl_cop: List[float] = None  # 循环效率
-    h_load_ratio: List[float] = None  # 热负载分配比例
-    T_ref: float = 28.0  # 参考温度(K)
-    T_init: float = 26.0  # 初始温度(K)
-    energy_upper_limit: float = 4.0  # MWh
-    energy_lower_limit: float = 0.0  # MWh
-    power_ch_limit: List[float] = None  # kW
-    power_lower_limit: float = 0.0  # kW
-    theta_base: float = 1.0
-
-    def __post_init__(self):
-        if self.NOFTCL > 0:
-            if self.tcl_c is None:
-                self.tcl_c = [80.0, 80.0, 40.0][:self.NOFTCL]
-            if self.tcl_r is None:
-                self.tcl_r = [0.1, 0.1, 0.15][:self.NOFTCL]
-            if self.tcl_cop is None:
-                self.tcl_cop = [3.6, 3.6, 3.3][:self.NOFTCL]
-            if self.h_load_ratio is None:
-                self.h_load_ratio = [0.4, 0.4, 0.2][:self.NOFTCL]
-            if self.power_ch_limit is None:
-                self.power_ch_limit = [400.0, 400.0, 200.0][:self.NOFTCL]
-        else:
-            # 当NOFTCL=0时，使用空列表
-            self.tcl_c = []
-            self.tcl_r = []
-            self.tcl_cop = []
-            self.h_load_ratio = []
-            self.power_ch_limit = []
-
-    @property
-    def energy_init(self) -> float:
-        return self.T_ref - self.T_init
-
-    @property
-    def power_ch_upper_limit(self) -> np.ndarray:
-        return np.array(self.power_ch_limit) * 1e-3  # MW
-
-
-@dataclass
-class IPPConfig:
-    """工业负荷配置参数"""
-    NOFIPP: int = 0  # IPP数量 (与MATLAB数据文件保持一致，param_day_21_pv_es_ev.mat中无IPP)
-    energy_init_ratio: float = 0.5  # 初始存储比例
-    energy_upper_limit_ratio: float = 0.90  # 上限比例
-    energy_lower_limit_ratio: float = 0.10  # 下限比例
-    power_lower_limit: float = 0.0  # MW
-    theta: float = 1.0
-    # 最后几个时段能量下限计算的时段数
-    final_slots_count: int = 14  # 最后14个时段
-    # 瓶颈过程需要工作的时长
-    bottleneck_working_hours: float = 22.0  # 小时
-    bottleneck_process_index: int = 0  # 瓶颈过程索引(最后一个)
-
-    @property
-    def power_ch_lower_limit(self) -> np.ndarray:
-        return np.zeros(self.NOFIPP)
 
 
 @dataclass
