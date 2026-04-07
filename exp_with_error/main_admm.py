@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 import numpy as np
 import os
 import sys
@@ -51,7 +51,11 @@ def _safe_percentage_change(current: float, baseline: float) -> float:
 
 def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
          mat_file: str = None,
-         save_results: bool = True) -> None:
+         save_results: bool = True,
+         aggregate_evs: bool = True,
+         parallel_user_solve: bool = True,
+         user_solver_workers: int = 0,
+         ev_count: Optional[int] = None) -> None:
     """主函数：运行VPP调频优化仿真
 
     Args:
@@ -86,6 +90,9 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
 
         from myexp.data_process.config import ResourceConfig
         config = ResourceConfig()
+        config.ev.aggregate_evs = aggregate_evs
+        if ev_count is not None:
+            config.ev.max_evs = ev_count
 
         param, param_std, time_params, Signal_day = prepare_main_data(
             day_price=23,
@@ -181,7 +188,23 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         "M": M,
         "NOFTCAP_ctrl": NOFTCAP_ctrl,
         "result": result,
+        "admm_settings": {
+            "parallel_user_solve": parallel_user_solve,
+            "user_solver_workers": user_solver_workers,
+        },
     }
+
+    print(
+        "ADMM设置: "
+        "EV块模式=fleet矩阵, "
+        f"EV聚合={'开' if data_source == 'data_process' and aggregate_evs else '关/沿用输入数据'}, "
+        f"并行用户求解参数={'开' if parallel_user_solve else '关'}(fleet模式下保留兼容), "
+        f"worker={user_solver_workers if user_solver_workers > 0 else 'auto'}, "
+        f"请求EV数量={ev_count if ev_count is not None else '默认'}"
+    )
+    if data_source == "data_process":
+        actual_ev_blocks = NOFDER - 2
+        print(f"实际参与优化的EV块数量: {actual_ev_blocks}")
 
     max_profit_1_admm(ctx)
 
@@ -476,6 +499,38 @@ if __name__ == "__main__":
         action='store_true',
         help='不保存结果文件'
     )
+    parser.add_argument(
+        '--aggregate_evs',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='是否对EV按到离站时段和类型进行聚合（默认开启）'
+    )
+    parser.add_argument(
+        '--parallel_user_solve',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='是否并行求解ADMM中的用户子问题（默认开启）'
+    )
+    parser.add_argument(
+        '--user_solver_workers',
+        type=int,
+        default=0,
+        help='ADMM用户子问题并行worker数量，0表示自动'
+    )
+    parser.add_argument(
+        '--ev_count',
+        type=int,
+        default=None,
+        help='data_process模式下的EV数量；开启聚合时表示聚合前总EV数'
+    )
 
     args = parser.parse_args()
-    main(data_source=args.data_source, mat_file=args.mat_file, save_results=not args.no_save)
+    main(
+        data_source=args.data_source,
+        mat_file=args.mat_file,
+        save_results=not args.no_save,
+        aggregate_evs=args.aggregate_evs,
+        parallel_user_solve=args.parallel_user_solve,
+        user_solver_workers=args.user_solver_workers,
+        ev_count=args.ev_count,
+    )

@@ -203,12 +203,19 @@ def max_profit_t(ctx: Dict[str, Any]) -> None:
     objective = cp.Maximize(Profit)
     problem = cp.Problem(objective, constraints)
     solver_name = _choose_solver("GUROBI")
-    problem.solve(solver=solver_name, verbose=False)
+    try:
+        problem.solve(solver=solver_name, verbose=False)
+    except Exception as e:
+        print(f"滚动求解器错误: {e}")
+        print("尝试使用备选求解器...")
+        solver_name = _choose_solver("ECOS")
+        problem.solve(solver=solver_name, verbose=False)
 
     # ========== 存储优化结果 ==========
     ok = problem.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
     if ok:
         print(f"slot {cur_slot}: rolling bid ok at t_cap {t_cap}")
+        result["revision_times"][cur_slot_idx] += 1
         # 更新剩余时段的投标
         result["Bid_R_rev"][cur_slot_idx + 1 :] = Bid_R.value
         result["Bid_P_rev"][cur_slot_idx + 1 :] = Bid_P.value

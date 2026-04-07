@@ -35,6 +35,7 @@ def fast_control_implement(ctx: Dict[str, Any]) -> None:
     # ========== 时间计算 ==========
     cur_slot = int(np.ceil(t_cap / 1800.0))     # 当前时段编号 (1~24, 每15分钟一段)
     cur_slot_idx = cur_slot - 1                  # 当前时段索引 (0~23, 用于数组访问)
+    ctrl_idx = (t_cap - 1) // NOFTCAP_ctrl
 
     delta_t_cap = NOFTCAP_ctrl / 1800.0          # 控制时间间隔 (30/1800 = 0.0167小时 = 1分钟)
 
@@ -99,6 +100,12 @@ def fast_control_implement(ctx: Dict[str, Any]) -> None:
     result["actualMil"][cur_slot_idx] += np.sum(np.abs(np.diff(P_total)))
     # 能量: 功率积分 (反映净能量消耗)
     result["actualEnergy"][cur_slot_idx] += np.sum(P_total) * delta_t / 1800.0
+
+    # 分钟级历史，便于 notebook 直接分析单车充/放电和 SOC
+    result["Signal_actual"][ctrl_idx] = float(np.mean(delta))
+    result["P_dis_actual"][:, ctrl_idx] = np.mean(p_dis, axis=1)
+    result["P_ch_actual"][:, ctrl_idx] = np.mean(p_ch, axis=1)
+    result["E_actual"][:, ctrl_idx + 1] = result["E_cur"]
 
     # ========== 输出临时结果 ==========
     result["p_dis"] = p_dis  # 当前计算的放电功率 (55×30, MW)

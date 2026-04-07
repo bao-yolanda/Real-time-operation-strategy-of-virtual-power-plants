@@ -188,7 +188,7 @@ def save_actual_signal_plot(stats: RegDStats, output_dir: str | Path, sample_ste
 def create_distribution_heatmaps_figure(stats: RegDStats):
     vmax = float(np.max(stats.historical_distribution))
 
-    fig, ax = plt.subplots(figsize=(8.2, 6))
+    fig, ax = plt.subplots(figsize=(8.8, 6))
 
     y_ticks = [
         0,
@@ -199,7 +199,7 @@ def create_distribution_heatmaps_figure(stats: RegDStats):
     ]
     y_labels = [f"{stats.scenario_values[idx]:.2f}" for idx in y_ticks]
 
-    ax.imshow(
+    heatmap = ax.imshow(
         stats.historical_distribution.T,
         aspect="auto",
         origin="lower",
@@ -213,6 +213,8 @@ def create_distribution_heatmaps_figure(stats: RegDStats):
     ax.set_yticks(y_ticks)
     ax.set_yticklabels(y_labels)
     ax.set_ylabel("场景值")
+    cbar = fig.colorbar(heatmap, ax=ax, pad=0.02)
+    cbar.set_label("出现概率")
     return fig
 
 

@@ -46,9 +46,49 @@ def _normalize_param_std(param_std: Any) -> Any:
     return param_std
 
 
+def _build_resource_meta(param_std: Any, NOFDER: int, NOFSLOTS: int) -> dict[str, Any]:
+    """构建 notebook 可直接消费的资源元信息。"""
+    ev_count = max(NOFDER - 2, 0)
+    ev_indices = np.arange(2, NOFDER, dtype=int)
+
+    resource_labels = ["PV_001", "ES_001"]
+    resource_labels.extend(f"EV_{idx:03d}" for idx in range(1, ev_count + 1))
+    resource_types = np.array(["PV", "ES", *["EV"] * ev_count], dtype=object)
+
+    if ev_count > 0:
+        ev_energy_upper = np.asarray(param_std.energy_upper_limit[ev_indices, :], dtype=float)
+        ev_energy_lower = np.asarray(param_std.energy_lower_limit[ev_indices, :], dtype=float)
+        ev_energy_init = np.asarray(param_std.energy_init[ev_indices], dtype=float)
+        ev_available = (
+            (np.asarray(param_std.power_ch_upper_limit[ev_indices, :], dtype=float) > 0.0)
+            | (np.asarray(param_std.power_dis_upper_limit[ev_indices, :], dtype=float) > 0.0)
+        )
+    else:
+        ev_energy_upper = np.zeros((0, NOFSLOTS), dtype=float)
+        ev_energy_lower = np.zeros((0, NOFSLOTS), dtype=float)
+        ev_energy_init = np.zeros(0, dtype=float)
+        ev_available = np.zeros((0, NOFSLOTS), dtype=bool)
+
+    return {
+        "resource_labels": resource_labels,
+        "resource_types": resource_types,
+        "ev_indices": ev_indices,
+        "ev_labels": [resource_labels[idx] for idx in ev_indices],
+        "ev_numbers": np.arange(1, ev_count + 1, dtype=int),
+        "ev_energy_init": ev_energy_init,
+        "ev_energy_upper": ev_energy_upper,
+        "ev_energy_lower": ev_energy_lower,
+        "ev_available": ev_available,
+        "slot_numbers": np.arange(1, NOFSLOTS + 1, dtype=int),
+        "slot_hours": np.arange(NOFSLOTS, dtype=float),
+        "slot_labels": [f"{hour:02d}:00" for hour in range(NOFSLOTS)],
+    }
+
+
 def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
          mat_file: str = None,
-         save_results: bool = True) -> None:
+         save_results: bool = True,
+         day_price: int = 25) -> dict[str, Any]:
     """主函数：运行VPP调频优化仿真
 
     Args:
@@ -58,6 +98,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         mat_file: .mat文件路径（当data_source="data_prepare"时使用）
             如果为None，默认读取'data_prepare/param_day_21_pv_es_ev.mat'
         save_results: 是否保存详细结果到文件
+        day_price: data_process模式下的价格日期编号
     """
     if data_source == "data_prepare":
         if mat_file is None:
@@ -85,7 +126,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         config = ResourceConfig()
 
         param, param_std, time_params, Signal_day = prepare_main_data(
-            day_price=21,
+            day_price=day_price,
             hour_init=0,
             NOFSLOTS=24,
             granularity=0.1,
@@ -112,6 +153,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
 
     NOFTCAP_bid = 1200
     NOFTCAP_ctrl = 30
+    saved_files: dict[str, str] = {}
 
     # ========== 初始化结果字典 ==========
     # 阶段1: 日前计划 (max_profit_1)
@@ -149,7 +191,10 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         "EnegyFee_day": np.zeros(NOFSLOTS),   # 日前能量费用
         "RegCapacity_day": np.zeros(NOFSLOTS),  # 日前调频容量收益
         "RegMileage_day": np.zeros(NOFSLOTS),   # 日前调频里程收益
-        "Profit_day": np.zeros(NOFSLOTS),       # 日前利润
+        "EnergyRevenue_day": np.zeros(NOFSLOTS),   # 日前总能量收益(含调频能量)
+        "CapacityRevenue_day": np.zeros(NOFSLOTS),  # 日前容量类收益
+        "BatteryDeg_day": np.zeros(NOFSLOTS),    # 日前电池退化费用
+        "Profit_day": np.zeros(NOFSLOTS),       # 日前净利润
 
         "Profit_rev": np.zeros(NOFSLOTS),       # 修正后利润
         "Profit_realtime": np.zeros(NOFSLOTS),  # 实时利润
@@ -157,7 +202,10 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         "actualEnegyFee": np.zeros(NOFSLOTS),   # 实际能量费用
         "actualRegCapacity": np.zeros(NOFSLOTS),  # 实际调频容量收益
         "actualRegMileage": np.zeros(NOFSLOTS),   # 实际调频里程收益
-        "actualProfit": np.zeros(NOFSLOTS),     # 实际总利润
+        "actualEnergyRevenue": np.zeros(NOFSLOTS),  # 实际总能量收益
+        "actualCapacityRevenue": np.zeros(NOFSLOTS),  # 实际容量类收益
+        "actualBatteryDeg": np.zeros(NOFSLOTS),   # 实际电池退化费用
+        "actualProfit": np.zeros(NOFSLOTS),     # 实际净利润
     }
 
     ctx = {
@@ -173,6 +221,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         "NOFTCAP_ctrl": NOFTCAP_ctrl,
         "result": result,
     }
+    resource_meta = _build_resource_meta(param_std, NOFDER, NOFSLOTS)
 
     max_profit_1(ctx)
 
@@ -182,17 +231,25 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
     result["P_DER_day"] = result.get("P_DER_rev", np.zeros((NOFDER, NOFSLOTS))).copy()
     result["R_DER_day"] = result.get("R_DER_rev", np.zeros((NOFDER, NOFSLOTS))).copy()
     result["E_day"] = result.get("E_init", np.zeros((NOFDER, NOFSLOTS + 1))).copy()
+    result["E_actual"][:, 0] = result.get("E_cur", np.zeros(NOFDER)).copy()
 
     # 计算日前计划利润
+    reg_energy_coeff = (param.hourly_Distribution @ param.d_s) * param.price_e
     result["EnegyFee_day"] = param.price_e * result["Bid_P_day"] * delta_t
     result["RegCapacity_day"] = param.price_reg[:, 0] * result["Bid_R_day"] * param.s_perf * delta_t
     result["RegMileage_day"] = param.price_reg[:, 1] * param.hourly_Mileage * result["Bid_R_day"] * param.s_perf * delta_t
-    result["Profit_day"] = result["EnegyFee_day"] + result["RegCapacity_day"] + result["RegMileage_day"]
+    result["EnergyRevenue_day"] = (
+        param.price_e * result["Bid_P_day"] + reg_energy_coeff * result["Bid_R_day"]
+    ) * delta_t
+    result["CapacityRevenue_day"] = result["RegCapacity_day"] + result["RegMileage_day"]
+    result["BatteryDeg_day"] = result.get("BatteryDeg_day", np.zeros(NOFSLOTS)).copy()
+    result["Profit_day"] = result["EnergyRevenue_day"] + result["CapacityRevenue_day"] - result["BatteryDeg_day"]
 
     print(f"日前计划总利润: {result['Profit_day'].sum():.4f} USD")
-    print(f"  - 能量费用: {result['EnegyFee_day'].sum():.4f} USD")
+    print(f"  - 能量收益: {result['EnergyRevenue_day'].sum():.4f} USD")
     print(f"  - 调频容量收益: {result['RegCapacity_day'].sum():.4f} USD")
     print(f"  - 调频里程收益: {result['RegMileage_day'].sum():.4f} USD")
+    print(f"  - 电池退化费用: {result['BatteryDeg_day'].sum():.4f} USD")
 
     for t_cap in range(1, (NOFSLOTS - 1) * 1800 + 1):
         if t_cap % NOFTCAP_bid == 1:
@@ -214,22 +271,30 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
     result["actualEnegyFee"] = param.price_e * result["actualEnergy"]
     result["actualRegCapacity"] = param.price_reg[:, 0] * result["Bid_R_rev"] * param.s_perf * delta_t
     result["actualRegMileage"] = (param.price_reg[:, 1] * result["actualMil"]) * param.s_perf * delta_t
-    result["actualProfit"] = result["actualEnegyFee"] + result["actualRegCapacity"] + result["actualRegMileage"]
+    result["actualEnergyRevenue"] = result["actualEnegyFee"].copy()
+    result["actualCapacityRevenue"] = result["actualRegCapacity"] + result["actualRegMileage"]
+    result["actualBatteryDeg"] = result["actualCost"].copy()
+    result["actualProfit"] = result["actualEnergyRevenue"] + result["actualCapacityRevenue"] - result["actualBatteryDeg"]
 
     print("\n========== 仿真结果汇总 ==========")
     print(f"日前计划总利润: {result['Profit_day'].sum():.4f} USD")
-    print(f"  - 能量费用: {result['EnegyFee_day'].sum():.4f} USD")
+    print(f"  - 能量收益: {result['EnergyRevenue_day'].sum():.4f} USD")
     print(f"  - 调频容量收益: {result['RegCapacity_day'].sum():.4f} USD")
     print(f"  - 调频里程收益: {result['RegMileage_day'].sum():.4f} USD")
+    print(f"  - 电池退化费用: {result['BatteryDeg_day'].sum():.4f} USD")
 
     print(f"\n实际总利润: {result['actualProfit'].sum():.4f} USD")
-    print(f"  - 能量费用: {result['actualEnegyFee'].sum():.4f} USD")
+    print(f"  - 能量收益: {result['actualEnergyRevenue'].sum():.4f} USD")
     print(f"  - 调频容量收益: {result['actualRegCapacity'].sum():.4f} USD")
     print(f"  - 调频里程收益: {result['actualRegMileage'].sum():.4f} USD")
+    print(f"  - 电池退化费用: {result['actualBatteryDeg'].sum():.4f} USD")
 
     # 利润变化
-    profit_diff = result['actualProfit'].sum() - result['Profit_day'].sum()
-    print(f"\n利润变化: {profit_diff:+.4f} USD ({profit_diff/result['Profit_day'].sum()*100:+.2f}%)")
+    day_profit_total = float(result['Profit_day'].sum())
+    actual_profit_total = float(result['actualProfit'].sum())
+    profit_diff = actual_profit_total - day_profit_total
+    profit_change_pct = profit_diff / day_profit_total * 100 if abs(day_profit_total) > 1e-12 else 0.0
+    print(f"\n利润变化: {profit_diff:+.4f} USD ({profit_change_pct:+.2f}%)")
 
     # ========== 保存结果为CSV和Excel格式 ==========
     if save_results:
@@ -251,16 +316,22 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
             # 修正后投标
             '修正后基础功率': result['Bid_P_rev'],
             '修正后调频功率': result['Bid_R_rev'],
-            # 利润数据
+            # 净利润数据
             '日前利润': result['Profit_day'],
             '实际利润': result['actualProfit'],
             # 利润构成
             '日前能量费用': result['EnegyFee_day'],
             '日前容量收益': result['RegCapacity_day'],
             '日前里程收益': result['RegMileage_day'],
+            '日前总能量收益': result['EnergyRevenue_day'],
+            '日前总容量收益': result['CapacityRevenue_day'],
+            '日前电池退化费用': result['BatteryDeg_day'],
             '实际能量费用': result['actualEnegyFee'],
             '实际容量收益': result['actualRegCapacity'],
             '实际里程收益': result['actualRegMileage'],
+            '实际总能量收益': result['actualEnergyRevenue'],
+            '实际总容量收益': result['actualCapacityRevenue'],
+            '实际电池退化费用': result['actualBatteryDeg'],
             # 功率平衡
             '实际里程': result['actualMil'],
             '实际能量': result['actualEnergy'],
@@ -272,6 +343,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         csv_file = os.path.join(results_dir, f'vpp_results_{timestamp}.csv')
         df_results.to_csv(csv_file, index=False, encoding='utf-8-sig')
         print(f"\n主结果CSV已保存到: {csv_file}")
+        saved_files["results_csv"] = csv_file
 
         # ========== 2. 保存资源类型汇总CSV (按PV/ES/EV分类) ==========
         # 资源索引: 0=PV, 1=ES, 2~NOFDER-1=EVs
@@ -319,6 +391,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         csv_resource = os.path.join(results_dir, f'vpp_resource_summary_{timestamp}.csv')
         df_resource.to_csv(csv_resource, index=False, encoding='utf-8-sig')
         print(f"资源汇总CSV已保存到: {csv_resource}")
+        saved_files["resource_csv"] = csv_resource
 
         # ========== 3. 保存市场参数CSV ==========
         df_market = pd.DataFrame({
@@ -332,6 +405,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         csv_market = os.path.join(results_dir, f'vpp_market_data_{timestamp}.csv')
         df_market.to_csv(csv_market, index=False, encoding='utf-8-sig')
         print(f"市场参数CSV已保存到: {csv_market}")
+        saved_files["market_csv"] = csv_market
 
         # ========== 4. 保存为Excel格式 (多工作表) ==========
         excel_file = os.path.join(results_dir, f'vpp_results_{timestamp}.xlsx')
@@ -351,6 +425,8 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
                 '指标': [
                     '日前计划总利润',
                     '实际总利润',
+                    '日前电池退化费用',
+                    '实际电池退化费用',
                     '利润差异',
                     '利润变化率(%)',
                     '修正总次数',
@@ -363,8 +439,10 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
                 '数值': [
                     result['Profit_day'].sum(),
                     result['actualProfit'].sum(),
+                    result['BatteryDeg_day'].sum(),
+                    result['actualBatteryDeg'].sum(),
                     result['actualProfit'].sum() - result['Profit_day'].sum(),
-                    (result['actualProfit'].sum() - result['Profit_day'].sum()) / result['Profit_day'].sum() * 100,
+                    (result['actualProfit'].sum() - result['Profit_day'].sum()) / result['Profit_day'].sum() * 100 if abs(result['Profit_day'].sum()) > 1e-12 else 0.0,
                     result['revision_times'].sum(),
                     np.sum(result['revision_times'] > 0),
                     result['Bid_P_rev'].mean(),
@@ -377,29 +455,33 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
 
             # 工作表5: 利润构成对比
             df_profit_composition = pd.DataFrame({
-                '项目': ['能量费用', '容量收益', '里程收益', '合计'],
+                '项目': ['能量总收益', '调频容量收益', '调频里程收益', '电池退化费用', '净利润'],
                 '日前计划': [
-                    result['EnegyFee_day'].sum(),
+                    result['EnergyRevenue_day'].sum(),
                     result['RegCapacity_day'].sum(),
                     result['RegMileage_day'].sum(),
+                    result['BatteryDeg_day'].sum(),
                     result['Profit_day'].sum(),
                 ],
                 '实际': [
-                    result['actualEnegyFee'].sum(),
+                    result['actualEnergyRevenue'].sum(),
                     result['actualRegCapacity'].sum(),
                     result['actualRegMileage'].sum(),
+                    result['actualBatteryDeg'].sum(),
                     result['actualProfit'].sum(),
                 ],
                 '差异': [
-                    result['actualEnegyFee'].sum() - result['EnegyFee_day'].sum(),
+                    result['actualEnergyRevenue'].sum() - result['EnergyRevenue_day'].sum(),
                     result['actualRegCapacity'].sum() - result['RegCapacity_day'].sum(),
                     result['actualRegMileage'].sum() - result['RegMileage_day'].sum(),
+                    result['actualBatteryDeg'].sum() - result['BatteryDeg_day'].sum(),
                     result['actualProfit'].sum() - result['Profit_day'].sum(),
                 ],
             })
             df_profit_composition.to_excel(writer, sheet_name='利润构成对比', index=False)
 
         print(f"完整Excel文件已保存到: {excel_file}")
+        saved_files["results_excel"] = excel_file
         print(f"\n数据概览:")
         print(f"  - 主结果: {len(df_results)} 时段数据")
         print(f"  - 资源汇总: {len(df_resource)} 条记录 (PV/ES/EV × {NOFSLOTS}时段)")
@@ -407,6 +489,25 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         print(f"  - Excel文件包含 5 个工作表")
 
     print("\ndone")
+    return {
+        "data_source": data_source,
+        "mat_file": mat_file,
+        "project_root": project_root,
+        "param": param,
+        "param_std": param_std,
+        "Signal_day": Signal_day,
+        "NOFSLOTS": NOFSLOTS,
+        "NOFDER": NOFDER,
+        "NOFSCEN": NOFSCEN,
+        "delta_t": delta_t,
+        "delta_t_req": delta_t_req,
+        "NOFTCAP_bid": NOFTCAP_bid,
+        "NOFTCAP_ctrl": NOFTCAP_ctrl,
+        "resource_meta": resource_meta,
+        "result": result,
+        "saved_files": saved_files,
+        "day_price": day_price,
+    }
 
 
 if __name__ == "__main__":
@@ -439,10 +540,21 @@ if __name__ == "__main__":
         help='.mat文件路径（仅当data_source=data_prepare时有效）'
     )
     parser.add_argument(
+        '--day_price',
+        type=int,
+        default=25,
+        help='data_process模式下的价格日期编号'
+    )
+    parser.add_argument(
         '--no_save',
         action='store_true',
         help='不保存结果文件'
     )
 
     args = parser.parse_args()
-    main(data_source=args.data_source, mat_file=args.mat_file, save_results=not args.no_save)
+    main(
+        data_source=args.data_source,
+        mat_file=args.mat_file,
+        save_results=not args.no_save,
+        day_price=args.day_price,
+    )

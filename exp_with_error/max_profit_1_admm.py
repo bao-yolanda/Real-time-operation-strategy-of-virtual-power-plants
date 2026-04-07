@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 import cvxpy as cp
 import numpy as np
@@ -45,6 +47,8 @@ class AdmmSettings:
     rel_tol: float = 1e-3
     verbose: bool = False
     solver_preferences: tuple[str, ...] = ("OSQP", "ECOS", "SCS", "GUROBI")
+    parallel_user_solve: bool = True
+    user_solver_workers: int = 0
 
 
 def _load_settings(ctx: Dict[str, Any]) -> AdmmSettings:
@@ -57,7 +61,41 @@ def _load_settings(ctx: Dict[str, Any]) -> AdmmSettings:
         rel_tol=float(raw.get("rel_tol", 1e-3)),
         verbose=bool(raw.get("verbose", False)),
         solver_preferences=tuple(raw.get("solver_preferences", ("OSQP", "ECOS", "SCS", "GUROBI"))),
+        parallel_user_solve=bool(raw.get("parallel_user_solve", True)),
+        user_solver_workers=int(raw.get("user_solver_workers", 0)),
     )
+
+
+def _resolve_user_solver_workers(settings: AdmmSettings, num_jobs: int) -> int:
+    if num_jobs <= 1 or not settings.parallel_user_solve:
+        return 1
+    if settings.user_solver_workers > 0:
+        return max(1, min(num_jobs, settings.user_solver_workers))
+    return max(1, min(num_jobs, os.cpu_count() or 1))
+
+
+def _run_user_solver_jobs(
+    solver_fn: Callable[..., Dict[str, Any]],
+    jobs: Sequence[tuple[Any, ...]],
+    settings: AdmmSettings,
+) -> List[Dict[str, Any]]:
+    if not jobs:
+        return []
+
+    workers = _resolve_user_solver_workers(settings, len(jobs))
+    if workers == 1:
+        return [solver_fn(*job) for job in jobs]
+
+    results: List[Dict[str, Any] | None] = [None] * len(jobs)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_idx = {
+            executor.submit(solver_fn, *job): idx
+            for idx, job in enumerate(jobs)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            results[idx] = future.result()
+    return [result for result in results if result is not None]
 
 
 def _infer_resource_blocks(param: Any, nofder: int) -> tuple[np.ndarray, np.ndarray]:
@@ -176,10 +214,10 @@ def _expected_deg_cost_per_slot(
     return delta_t * np.sum(dist * cost_deg, axis=1)
 
 
-def _solve_ev_user_subproblem(
-    row_index: int,
-    y_p: np.ndarray,
-    y_r: np.ndarray,
+def _solve_ev_fleet_subproblem(
+    row_indices: np.ndarray,
+    z_p: np.ndarray,
+    z_r: np.ndarray,
     lambda_p: np.ndarray,
     lambda_r: np.ndarray,
     ctx: Dict[str, Any],
@@ -191,15 +229,16 @@ def _solve_ev_user_subproblem(
     nofscen = ctx["NOFSCEN"]
     delta_t = ctx["delta_t"]
     delta_t_req = ctx["delta_t_req"]
+    num_ev = len(row_indices)
 
-    p_der = cp.Variable((1, nofslots))
-    r_der = cp.Variable((1, nofslots))
-    p_dis = cp.Variable((1, nofslots, nofscen))
-    p_ch = cp.Variable((1, nofslots, nofscen))
-    energy = cp.Variable((1, nofslots + 1))
+    p_der = cp.Variable((num_ev, nofslots))
+    r_der = cp.Variable((num_ev, nofslots))
+    p_dis = cp.Variable((num_ev, nofslots, nofscen))
+    p_ch = cp.Variable((num_ev, nofslots, nofscen))
+    energy = cp.Variable((num_ev, nofslots + 1))
 
     constraints, cost_deg = _build_block_constraints(
-        np.array([row_index], dtype=int),
+        row_indices,
         p_der,
         r_der,
         p_dis,
@@ -212,11 +251,13 @@ def _solve_ev_user_subproblem(
         delta_t,
         delta_t_req,
     )
+    p_sum = cp.sum(p_der, axis=0)
+    r_sum = cp.sum(r_der, axis=0)
 
     objective = cp.Minimize(
         delta_t * cp.sum(cp.multiply(np.asarray(param.hourly_Distribution), cost_deg))
-        + 0.5 * settings.rho_p * cp.sum_squares(p_der[0, :] - y_p + lambda_p)
-        + 0.5 * settings.rho_r * cp.sum_squares(r_der[0, :] - y_r + lambda_r)
+        + 0.5 * settings.rho_p * cp.sum_squares(p_sum - z_p + lambda_p)
+        + 0.5 * settings.rho_r * cp.sum_squares(r_sum - z_r + lambda_r)
     )
     problem = cp.Problem(objective, constraints)
     solve_start = perf_counter()
@@ -226,19 +267,20 @@ def _solve_ev_user_subproblem(
     return {
         "status": problem.status,
         "solve_time": solve_time,
-        "p": np.asarray(p_der.value[0, :]).copy() if p_der.value is not None else np.zeros(nofslots),
-        "r": np.asarray(r_der.value[0, :]).copy() if r_der.value is not None else np.zeros(nofslots),
-        "e": np.asarray(energy.value[0, :]).copy() if energy.value is not None else np.zeros(nofslots + 1),
-        "p_dis": np.asarray(p_dis.value[0, :, :]).copy() if p_dis.value is not None else np.zeros((nofslots, nofscen)),
-        "p_ch": np.asarray(p_ch.value[0, :, :]).copy() if p_ch.value is not None else np.zeros((nofslots, nofscen)),
+        "p": np.asarray(p_der.value).copy() if p_der.value is not None else np.zeros((num_ev, nofslots)),
+        "r": np.asarray(r_der.value).copy() if r_der.value is not None else np.zeros((num_ev, nofslots)),
+        "e": np.asarray(energy.value).copy() if energy.value is not None else np.zeros((num_ev, nofslots + 1)),
+        "p_dis": np.asarray(p_dis.value).copy() if p_dis.value is not None else np.zeros((num_ev, nofslots, nofscen)),
+        "p_ch": np.asarray(p_ch.value).copy() if p_ch.value is not None else np.zeros((num_ev, nofslots, nofscen)),
+        "p_sum": np.asarray(p_sum.value).copy() if p_sum.value is not None else np.zeros(nofslots),
+        "r_sum": np.asarray(r_sum.value).copy() if r_sum.value is not None else np.zeros(nofslots),
     }
 
 
 def _solve_master_problem(
     central_indices: np.ndarray,
-    avg_a_p: np.ndarray,
-    avg_a_r: np.ndarray,
-    num_ev_users: int,
+    agg_a_p: np.ndarray,
+    agg_a_r: np.ndarray,
     ctx: Dict[str, Any],
     settings: AdmmSettings,
 ) -> Dict[str, Any]:
@@ -250,8 +292,8 @@ def _solve_master_problem(
     delta_t_req = ctx["delta_t_req"]
     num_central = len(central_indices)
 
-    avg_p_ev = cp.Variable(nofslots)
-    avg_r_ev = cp.Variable(nofslots)
+    z_p = cp.Variable(nofslots)
+    z_r = cp.Variable(nofslots)
 
     if num_central > 0:
         p_der_c = cp.Variable((num_central, nofslots))
@@ -284,8 +326,8 @@ def _solve_master_problem(
         r_der_c = None
         energy_c = None
 
-    total_bid_p = p_central_sum + num_ev_users * avg_p_ev
-    total_bid_r = r_central_sum + num_ev_users * avg_r_ev
+    total_bid_p = p_central_sum + z_p
+    total_bid_r = r_central_sum + z_r
     reg_mileage = np.asarray(param.price_reg)[:, 1] * np.asarray(param.hourly_Mileage)
     reg_energy = np.asarray(param.hourly_Distribution) @ np.asarray(param.d_s)
     profit = (
@@ -298,16 +340,19 @@ def _solve_master_problem(
 
     objective = cp.Maximize(
         profit
-        - 0.5 * num_ev_users * settings.rho_p * cp.sum_squares(avg_p_ev - avg_a_p)
-        - 0.5 * num_ev_users * settings.rho_r * cp.sum_squares(avg_r_ev - avg_a_r)
+        - 0.5 * settings.rho_p * cp.sum_squares(z_p - agg_a_p)
+        - 0.5 * settings.rho_r * cp.sum_squares(z_r - agg_a_r)
     )
     problem = cp.Problem(objective, constraints)
+    solve_start = perf_counter()
     _solve_problem(problem, settings.solver_preferences, settings.verbose)
+    solve_time = perf_counter() - solve_start
 
     return {
         "status": problem.status,
-        "avg_p_ev": np.asarray(avg_p_ev.value).copy() if avg_p_ev.value is not None else np.zeros(nofslots),
-        "avg_r_ev": np.asarray(avg_r_ev.value).copy() if avg_r_ev.value is not None else np.zeros(nofslots),
+        "solve_time": solve_time,
+        "z_p": np.asarray(z_p.value).copy() if z_p.value is not None else np.zeros(nofslots),
+        "z_r": np.asarray(z_r.value).copy() if z_r.value is not None else np.zeros(nofslots),
         "p_central": np.asarray(p_der_c.value).copy() if p_der_c is not None and p_der_c.value is not None else np.zeros((num_central, nofslots)),
         "r_central": np.asarray(r_der_c.value).copy() if r_der_c is not None and r_der_c.value is not None else np.zeros((num_central, nofslots)),
         "p_dis_c": np.asarray(p_dis_c.value).copy() if num_central > 0 and p_dis_c.value is not None else np.zeros((num_central, nofslots, nofscen)),
@@ -342,10 +387,10 @@ def _compute_tolerances(
 def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
     """日前初始投标优化的 ADMM 版本。
 
-    采用“中心块 PV/ES + EV 用户共享 ADMM”的混合结构：
-    - PV 和 ES 由主问题直接优化；
-    - 每个 EV 组独立求解本地子问题；
-    - 聚合器只在平均意义上协调 EV 的 p/r。
+    采用“两块 ADMM”的混合结构：
+    - 主块：PV/ES 与市场投标；
+    - EV块：保留所有EV行约束的矩阵子问题；
+    - 上下层只围绕EV聚合后的总 p/r 做一致性迭代。
     """
     param = ctx["param"]
     param_std = ctx["param_std"]
@@ -355,15 +400,15 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
 
     settings = _load_settings(ctx)
     central_indices, ev_indices = _infer_resource_blocks(param, nofder)
-    num_ev_users = len(ev_indices)
+    num_ev_rows = len(ev_indices)
 
-    if num_ev_users == 0:
+    if num_ev_rows == 0:
         raise ValueError("ADMM 版本需要至少一个 EV 用户块；当前 NOFEV=0。")
 
-    y_p = np.zeros((num_ev_users, nofslots))
-    y_r = np.zeros((num_ev_users, nofslots))
-    lambda_p = np.zeros((num_ev_users, nofslots))
-    lambda_r = np.zeros((num_ev_users, nofslots))
+    z_p = np.zeros(nofslots)
+    z_r = np.zeros(nofslots)
+    lambda_p = np.zeros(nofslots)
+    lambda_r = np.zeros(nofslots)
 
     primal_history: List[float] = []
     dual_history: List[float] = []
@@ -371,75 +416,61 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
     eps_dual_history: List[float] = []
     user_solve_time_history: List[float] = []
     system_solve_time_history: List[float] = []
-    user_solve_time_by_user = np.zeros(num_ev_users)
-    user_solve_counts_by_user = np.zeros(num_ev_users)
+    user_solve_time_by_user = np.zeros(1)
+    user_solve_counts_by_user = np.zeros(1)
 
-    final_user_steps: List[Dict[str, Any]] = []
+    final_user_step: Dict[str, Any] = {}
     master_step: Dict[str, Any] = {}
     converged = False
 
     for _ in range(settings.max_iter):
-        user_steps: List[Dict[str, Any]] = []
-        p_local = np.zeros((num_ev_users, nofslots))
-        r_local = np.zeros((num_ev_users, nofslots))
-        a_p = np.zeros((num_ev_users, nofslots))
-        a_r = np.zeros((num_ev_users, nofslots))
+        local_step = _solve_ev_fleet_subproblem(
+            ev_indices,
+            z_p,
+            z_r,
+            lambda_p,
+            lambda_r,
+            ctx,
+            settings,
+        )
+        user_solve_time_history.append(float(local_step.get("solve_time", 0.0)))
+        user_solve_time_by_user[0] += float(local_step.get("solve_time", 0.0))
+        user_solve_counts_by_user[0] += 1.0
 
-        for local_idx, row_idx in enumerate(ev_indices):
-            step = _solve_ev_user_subproblem(
-                row_idx,
-                y_p[local_idx],
-                y_r[local_idx],
-                lambda_p[local_idx],
-                lambda_r[local_idx],
-                ctx,
-                settings,
-            )
-            user_steps.append(step)
-            user_solve_time_history.append(float(step.get("solve_time", 0.0)))
-            user_solve_time_by_user[local_idx] += float(step.get("solve_time", 0.0))
-            user_solve_counts_by_user[local_idx] += 1.0
-            p_local[local_idx] = step["p"]
-            r_local[local_idx] = step["r"]
-            a_p[local_idx] = step["p"] + lambda_p[local_idx]
-            a_r[local_idx] = step["r"] + lambda_r[local_idx]
+        p_local = local_step["p_sum"]
+        r_local = local_step["r_sum"]
+        a_p = p_local + lambda_p
+        a_r = r_local + lambda_r
 
-        system_phase_start = perf_counter()
-        avg_a_p = a_p.mean(axis=0)
-        avg_a_r = a_r.mean(axis=0)
         master_step = _solve_master_problem(
             central_indices,
-            avg_a_p,
-            avg_a_r,
-            num_ev_users,
+            a_p,
+            a_r,
             ctx,
             settings,
         )
 
-        prev_y_p = y_p.copy()
-        prev_y_r = y_r.copy()
-        delta_p = master_step["avg_p_ev"] - avg_a_p
-        delta_r = master_step["avg_r_ev"] - avg_a_r
+        prev_z_p = z_p.copy()
+        prev_z_r = z_r.copy()
+        z_p = master_step["z_p"]
+        z_r = master_step["z_r"]
+        lambda_p = lambda_p + p_local - z_p
+        lambda_r = lambda_r + r_local - z_r
+        system_solve_time_history.append(float(master_step.get("solve_time", 0.0)))
 
-        y_p = a_p + delta_p[None, :]
-        y_r = a_r + delta_r[None, :]
-        lambda_p = lambda_p + p_local - y_p
-        lambda_r = lambda_r + r_local - y_r
-        system_solve_time_history.append(perf_counter() - system_phase_start)
-
-        primal_residual = np.sqrt(np.sum((p_local - y_p) ** 2) + np.sum((r_local - y_r) ** 2))
+        primal_residual = np.sqrt(np.sum((p_local - z_p) ** 2) + np.sum((r_local - z_r) ** 2))
         dual_residual = np.sqrt(
-            settings.rho_p ** 2 * np.sum((y_p - prev_y_p) ** 2)
-            + settings.rho_r ** 2 * np.sum((y_r - prev_y_r) ** 2)
+            settings.rho_p ** 2 * np.sum((z_p - prev_z_p) ** 2)
+            + settings.rho_r ** 2 * np.sum((z_r - prev_z_r) ** 2)
         )
-        eps_pri, eps_dual = _compute_tolerances(p_local, r_local, y_p, y_r, settings)
+        eps_pri, eps_dual = _compute_tolerances(p_local, r_local, z_p, z_r, settings)
 
         primal_history.append(primal_residual)
         dual_history.append(dual_residual)
         eps_pri_history.append(eps_pri)
         eps_dual_history.append(eps_dual)
 
-        final_user_steps = user_steps
+        final_user_step = local_step
         if primal_residual <= eps_pri and dual_residual <= eps_dual:
             converged = True
             break
@@ -453,10 +484,9 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
         r_der_full[central_indices, :] = master_step["r_central"]
         e_full[central_indices, :] = master_step["e_central"]
 
-    for local_idx, row_idx in enumerate(ev_indices):
-        p_der_full[row_idx, :] = final_user_steps[local_idx]["p"]
-        r_der_full[row_idx, :] = final_user_steps[local_idx]["r"]
-        e_full[row_idx, :] = final_user_steps[local_idx]["e"]
+    p_der_full[ev_indices, :] = final_user_step.get("p", np.zeros((num_ev_rows, nofslots)))
+    r_der_full[ev_indices, :] = final_user_step.get("r", np.zeros((num_ev_rows, nofslots)))
+    e_full[ev_indices, :] = final_user_step.get("e", np.zeros((num_ev_rows, nofslots + 1)))
 
     deg_day = np.zeros(nofslots)
     if len(central_indices) > 0:
@@ -469,15 +499,14 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
             ctx["delta_t"],
         )
 
-    for local_idx, row_idx in enumerate(ev_indices):
-        deg_day += _expected_deg_cost_per_slot(
-            np.array([row_idx], dtype=int),
-            final_user_steps[local_idx].get("p_dis"),
-            final_user_steps[local_idx].get("p_ch"),
-            param,
-            param_std,
-            ctx["delta_t"],
-        )
+    deg_day += _expected_deg_cost_per_slot(
+        ev_indices,
+        final_user_step.get("p_dis"),
+        final_user_step.get("p_ch"),
+        param,
+        param_std,
+        ctx["delta_t"],
+    )
 
     bid_p = p_der_full.sum(axis=0)
     bid_r = r_der_full.sum(axis=0)
@@ -516,8 +545,10 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
     result["admm_system_time_avg"] = float(np.mean(system_solve_time_history)) if system_solve_time_history else 0.0
     result["admm_system_time_total"] = float(np.sum(system_solve_time_history))
     result["admm_system_time_history"] = np.asarray(system_solve_time_history)
-    result["admm_ev_avg_p"] = master_step.get("avg_p_ev", np.zeros(nofslots)).copy()
-    result["admm_ev_avg_r"] = master_step.get("avg_r_ev", np.zeros(nofslots)).copy()
+    result["admm_ev_sum_p"] = master_step.get("z_p", np.zeros(nofslots)).copy()
+    result["admm_ev_sum_r"] = master_step.get("z_r", np.zeros(nofslots)).copy()
+    result["admm_ev_avg_p"] = result["admm_ev_sum_p"].copy()
+    result["admm_ev_avg_r"] = result["admm_ev_sum_r"].copy()
     result["admm_primal_history"] = np.asarray(primal_history)
     result["admm_dual_history"] = np.asarray(dual_history)
     result["admm_eps_pri_history"] = np.asarray(eps_pri_history)
@@ -527,3 +558,4 @@ def max_profit_1_admm(ctx: Dict[str, Any]) -> None:
     result["admm_ok"] = ok
     result["admm_central_indices"] = central_indices.copy()
     result["admm_ev_indices"] = ev_indices.copy()
+    result["admm_ev_block_mode"] = "fleet"

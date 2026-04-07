@@ -182,3 +182,8 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
     result["P_DER_rev"] = P_DER.value.copy() if P_DER.value is not None else np.zeros((NOFDER, NOFSLOTS))  # 各资源基础功率历史 (55×96)
     result["R_DER_rev"] = R_DER.value.copy() if R_DER.value is not None else np.zeros((NOFDER, NOFSLOTS))  # 各资源调频功率历史 (55×96)
     result["E_rev"] = result["E_cur"].reshape(-1, 1)  # 能量历史 (55×1, 初始状态)
+    result["BatteryDeg_day"] = (
+        delta_t * np.sum(np.asarray(param.hourly_Distribution) * Cost_deg.value, axis=1)
+        if Cost_deg.value is not None
+        else np.zeros(NOFSLOTS)
+    )
