@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import os
@@ -10,7 +10,15 @@ from types import SimpleNamespace
 from typing import Any
 
 import matplotlib
-matplotlib.use("Agg")
+
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
+
+if get_ipython is None or get_ipython() is None:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -59,7 +67,11 @@ def _dict_to_sns(d: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**d)
 
 
-def _build_context(ev_count: int, aggregate_evs: bool) -> tuple[dict[str, Any], Any]:
+def _build_context(
+    ev_count: int,
+    aggregate_evs: bool,
+    day_price: int = 21,
+) -> tuple[dict[str, Any], Any]:
     config = ResourceConfig()
     config.ev.aggregate_evs = aggregate_evs
     config.ev.max_evs = ev_count
@@ -67,15 +79,17 @@ def _build_context(ev_count: int, aggregate_evs: bool) -> tuple[dict[str, Any], 
     nofslots = config.system.NOFSLOTS
     base_dir = project_root
 
+    day_reg = day_price + 1
+
     hourly_distribution, hourly_mileage, d_s, signal_day = prepare_regd_distribution(
-        day_reg=22,
+        day_reg=day_reg,
         NOFSLOTS=nofslots,
         granularity=0.1,
         nofHisDays=14,
         base_dir=base_dir,
     )
     price_reg, price_e, _ = prepare_price_data(
-        day_price=21,
+        day_price=day_price,
         hour_init=0,
         NOFSLOTS=nofslots,
         base_dir=base_dir,
@@ -159,12 +173,22 @@ def _build_context(ev_count: int, aggregate_evs: bool) -> tuple[dict[str, Any], 
         "result": result,
         "NOFTCAP_bid": noftcap_bid,
         "config": config,
+        "day_price": day_price,
+        "day_reg": day_reg,
     }
     return ctx, param_resource
 
 
-def _run_experiment(ev_count: int, aggregate_evs: bool) -> tuple[dict[str, Any], Any]:
-    ctx, param_resource = _build_context(ev_count=ev_count, aggregate_evs=aggregate_evs)
+def _run_experiment(
+    ev_count: int,
+    aggregate_evs: bool,
+    day_price: int = 21,
+) -> tuple[dict[str, Any], Any]:
+    ctx, param_resource = _build_context(
+        ev_count=ev_count,
+        aggregate_evs=aggregate_evs,
+        day_price=day_price,
+    )
     param = ctx["param"]
     result = ctx["result"]
     nofslots = ctx["NOFSLOTS"]
@@ -498,8 +522,12 @@ def _write_summary_text(
     return text
 
 
-def main(ev_count: int = 360, aggregate_evs: bool = False) -> None:
-    ctx, param_resource = _run_experiment(ev_count=ev_count, aggregate_evs=aggregate_evs)
+def main(ev_count: int = 360, aggregate_evs: bool = False, day_price: int = 21) -> None:
+    ctx, param_resource = _run_experiment(
+        ev_count=ev_count,
+        aggregate_evs=aggregate_evs,
+        day_price=day_price,
+    )
     result = ctx["result"]
     nofslots = ctx["NOFSLOTS"]
 
@@ -533,12 +561,18 @@ def main(ev_count: int = 360, aggregate_evs: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="异质EV到离站与 bid_p 修正分析")
-    parser.add_argument("--ev_count", type=int, default=360, help="EV数量")
+    parser = argparse.ArgumentParser(description="heterogeneous EV bid correction analysis")
+    parser.add_argument("--ev_count", type=int, default=360, help="EV count")
     parser.add_argument(
         "--aggregate_evs",
         action="store_true",
-        help="按(到达, 离开, 类型)聚合EV求解，便于加速",
+        help="Aggregate EVs by (arrival, departure, type) before solving",
+    )
+    parser.add_argument(
+        "--day_price",
+        type=int,
+        default=21,
+        help="Price day index; regulation signal uses the next day by default",
     )
     args = parser.parse_args()
-    main(ev_count=args.ev_count, aggregate_evs=args.aggregate_evs)
+    main(ev_count=args.ev_count, aggregate_evs=args.aggregate_evs, day_price=args.day_price)

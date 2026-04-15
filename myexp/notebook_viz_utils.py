@@ -29,6 +29,7 @@ def load_or_run_simulation(
     mat_file: str | None = None,
     save_results: bool = False,
     day_price: int = 25,
+    **main_kwargs: Any,
 ) -> dict[str, Any]:
     """优先从缓存读取；没有缓存时调用 myexp.main.main。"""
     if str(project_root) not in sys.path:
@@ -42,7 +43,13 @@ def load_or_run_simulation(
 
     from myexp.main import main
 
-    sim = main(data_source=data_source, mat_file=mat_file, save_results=save_results, day_price=day_price)
+    sim = main(
+        data_source=data_source,
+        mat_file=mat_file,
+        save_results=save_results,
+        day_price=day_price,
+        **main_kwargs,
+    )
     with cache_path.open("wb") as fh:
         pickle.dump(sim, fh)
     return sim
@@ -286,6 +293,71 @@ def build_selected_ev_actual_df(sim: dict[str, Any], ev_number: int) -> pd.DataF
     actual_df["ev_label"] = meta["ev_labels"][ev_pos]
     actual_df["capacity_mwh"] = capacity
     return actual_df
+
+
+def build_selected_ev_soc_compare_df(sim: dict[str, Any], ev_number: int) -> pd.DataFrame:
+    slot_df = build_selected_ev_slot_df(sim, ev_number)
+    actual_df = build_selected_ev_actual_df(sim, ev_number)
+    result = sim["result"]
+    param_std = sim["param_std"]
+    meta = sim["resource_meta"]
+    nofslots = sim["NOFSLOTS"]
+
+    ev_pos = ev_number - 1
+    ev_idx = int(meta["ev_indices"][ev_pos])
+    steps_per_slot = result["P_dis_actual"].shape[1] // nofslots
+    n_steps = result["P_dis_actual"].shape[1]
+    delta_t_step = float(sim["delta_t"]) / steps_per_slot
+    capacity = _ev_capacity(meta, ev_pos)
+
+    base_power = np.repeat(np.asarray(slot_df["bid_p_rev"], dtype=float), steps_per_slot)
+    available_step = np.repeat(np.asarray(slot_df["available"], dtype=bool), steps_per_slot)
+    hourly_slot = np.repeat(np.asarray(slot_df["slot"], dtype=int), steps_per_slot)
+    hourly_hour = np.arange(n_steps, dtype=float) / steps_per_slot
+
+    theta = float(np.asarray(param_std.theta, dtype=float)[ev_idx])
+    eta_ch = float(np.asarray(param_std.eta_ch, dtype=float)[ev_idx, ev_idx])
+    eta_dis = float(np.asarray(param_std.eta_dis, dtype=float)[ev_idx, ev_idx])
+    w_omiga = np.repeat(np.asarray(param_std.wOmiga, dtype=float)[ev_idx], steps_per_slot)
+
+    base_energy = np.zeros(n_steps + 1, dtype=float)
+    base_energy[0] = float(np.asarray(result["E_actual"], dtype=float)[ev_idx, 0])
+    for step_idx in range(n_steps):
+        p_base = float(base_power[step_idx])
+        p_dis = max(p_base, 0.0)
+        p_ch = max(-p_base, 0.0)
+        base_energy[step_idx + 1] = (
+            (1.0 - delta_t_step * (1.0 - theta)) * base_energy[step_idx]
+            + eta_ch * p_ch * delta_t_step
+            - eta_dis * p_dis * delta_t_step
+            + w_omiga[step_idx] * delta_t_step
+        )
+
+    actual_power = np.asarray(actual_df["p_net"], dtype=float)
+    reg_power = actual_power - base_power
+    reg_energy_step = reg_power * delta_t_step * 1000.0
+
+    compare_df = pd.DataFrame(
+        {
+            "step_idx": np.arange(n_steps, dtype=int),
+            "hour": hourly_hour,
+            "slot": hourly_slot,
+            "available": available_step,
+            "base_power_kw": base_power * 1000.0,
+            "actual_power_kw": actual_power * 1000.0,
+            "reg_power_kw": reg_power * 1000.0,
+            "reg_energy_step_kwh": reg_energy_step,
+            "reg_energy_cum_kwh": np.cumsum(reg_energy_step),
+            "soc_base_pct": base_energy[1:] / capacity * 100.0,
+            "soc_actual_pct": np.asarray(actual_df["soc_end_pct"], dtype=float),
+            "soc_gap_pct": np.asarray(actual_df["soc_end_pct"], dtype=float) - base_energy[1:] / capacity * 100.0,
+            "soc_lower_pct": np.asarray(actual_df["soc_lower_pct"], dtype=float),
+            "soc_upper_pct": np.asarray(actual_df["soc_upper_pct"], dtype=float),
+            "ev_label": actual_df["ev_label"],
+            "capacity_mwh": actual_df["capacity_mwh"],
+        }
+    )
+    return compare_df
 
 
 def build_analysis_bundle(sim: dict[str, Any]) -> dict[str, Any]:

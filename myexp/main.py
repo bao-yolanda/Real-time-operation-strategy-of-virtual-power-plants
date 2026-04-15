@@ -31,6 +31,7 @@ def _normalize_param(param: Any) -> Any:
 
 def _normalize_param_std(param_std: Any) -> Any:
     param_std.energy_init = as_1d(param_std.energy_init)
+    param_std.energy_end = as_1d(param_std.energy_end)
     param_std.energy_upper_limit = as_2d(param_std.energy_upper_limit)
     param_std.energy_lower_limit = as_2d(param_std.energy_lower_limit)
     param_std.power_dis_upper_limit = as_2d(param_std.power_dis_upper_limit)
@@ -43,6 +44,43 @@ def _normalize_param_std(param_std: Any) -> Any:
     param_std.pr_dis = as_1d(param_std.pr_dis)
     param_std.pr_ch = as_1d(param_std.pr_ch)
     param_std.wOmiga = as_2d(param_std.wOmiga)
+    return param_std
+
+
+def _disable_pv_resource(param_std: Any) -> Any:
+    """Keep matrix sizes unchanged while removing PV participation."""
+    pv_idx = 0
+
+    for field in ["energy_init", "energy_end", "theta", "pr_dis", "pr_ch"]:
+        if hasattr(param_std, field):
+            values = np.asarray(getattr(param_std, field), dtype=float).copy()
+            if values.shape[0] > pv_idx:
+                values[pv_idx] = 0.0
+                setattr(param_std, field, values)
+
+    for field in [
+        "energy_upper_limit",
+        "energy_lower_limit",
+        "power_dis_upper_limit",
+        "power_dis_lower_limit",
+        "power_ch_upper_limit",
+        "power_ch_lower_limit",
+        "wOmiga",
+    ]:
+        if hasattr(param_std, field):
+            values = np.asarray(getattr(param_std, field), dtype=float).copy()
+            if values.shape[0] > pv_idx:
+                values[pv_idx, :] = 0.0
+                setattr(param_std, field, values)
+
+    for field in ["eta_dis", "eta_ch"]:
+        if hasattr(param_std, field):
+            values = np.asarray(getattr(param_std, field), dtype=float).copy()
+            if values.shape[0] > pv_idx and values.shape[1] > pv_idx:
+                values[pv_idx, :] = 0.0
+                values[:, pv_idx] = 0.0
+                setattr(param_std, field, values)
+
     return param_std
 
 
@@ -88,7 +126,8 @@ def _build_resource_meta(param_std: Any, NOFDER: int, NOFSLOTS: int) -> dict[str
 def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
          mat_file: str = None,
          save_results: bool = True,
-         day_price: int = 25) -> dict[str, Any]:
+         day_price: int = 25,
+         disable_pv: bool = False) -> dict[str, Any]:
     """主函数：运行VPP调频优化仿真
 
     Args:
@@ -99,6 +138,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
             如果为None，默认读取'data_prepare/param_day_21_pv_es_ev.mat'
         save_results: 是否保存详细结果到文件
         day_price: data_process模式下的价格日期编号
+        disable_pv: 是否禁用PV参与
     """
     if data_source == "data_prepare":
         if mat_file is None:
@@ -146,6 +186,10 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         delta_t = time_params["delta_t"]
         M = time_params["M"]
         delta_t_req = time_params["delta_t_req"]
+
+    if disable_pv:
+        print("场景设置: 禁用PV参与（保留资源维度，但PV不可卖电也不可调频）")
+        param_std = _disable_pv_resource(param_std)
 
     print(f"NOFSLOTS={NOFSLOTS}, NOFDER={NOFDER}, NOFSCEN={NOFSCEN}")
     print(f"delta_t={delta_t}, delta_t_req={delta_t_req}, M={M}")
@@ -507,6 +551,7 @@ def main(data_source: Literal["data_prepare", "data_process"] = "data_process",
         "result": result,
         "saved_files": saved_files,
         "day_price": day_price,
+        "disable_pv": disable_pv,
     }
 
 
@@ -546,6 +591,11 @@ if __name__ == "__main__":
         help='data_process模式下的价格日期编号'
     )
     parser.add_argument(
+        '--disable_pv',
+        action='store_true',
+        help='禁用PV参与（保留资源维度，但不允许PV出力或调频）'
+    )
+    parser.add_argument(
         '--no_save',
         action='store_true',
         help='不保存结果文件'
@@ -557,4 +607,5 @@ if __name__ == "__main__":
         mat_file=args.mat_file,
         save_results=not args.no_save,
         day_price=args.day_price,
+        disable_pv=args.disable_pv,
     )

@@ -63,7 +63,7 @@ def max_profit_1(ctx: Dict[str, Any]) -> None:
         price_e @ Bid_P                      # 能量收益: 基础功率 × 能量价格
         + price_reg[:, 0] @ Bid_R * param.s_perf   # 容量收益: 调频功率 × 容量价格 × 性能得分
         + reg_mileage @ Bid_R * param.s_perf      # 里程收益: 调频功率 × 里程期望 × 性能得分
-        + reg_energy @ Bid_R                   # 调频能量收益
+        + reg_energy @ Bid_R     # 调频能量收益
         - cp.sum(cp.multiply(hourly_distribution, Cost_deg))  # 老化成本
     )
     Profit = Profit * delta_t  # 转换为总收益

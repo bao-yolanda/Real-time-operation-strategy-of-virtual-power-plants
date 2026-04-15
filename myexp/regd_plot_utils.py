@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
+
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
+
+if get_ipython is None or get_ipython() is None:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
